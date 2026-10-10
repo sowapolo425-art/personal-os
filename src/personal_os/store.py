@@ -85,10 +85,6 @@ class Store:
             raise ValueError("Initialize this vault with personal-os init first")
         path = self._safe(self.meta / "lock")
         with open(path, "a+b") as handle:
-            handle.seek(0, 2)
-            if handle.tell() == 0:
-                handle.write(b"0")
-                handle.flush()
             handle.seek(0)
             if os.name == "nt":
                 import msvcrt
@@ -97,6 +93,12 @@ class Store:
                 import fcntl
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
+                # Initialize only AFTER acquiring the lock. On Windows, another
+                # client may already lock the first byte while this file is empty.
+                handle.seek(0, 2)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
                 yield
             finally:
                 handle.seek(0)
@@ -202,16 +204,26 @@ class Store:
                     {"excerpt": r["content"][:240]} for r in records[:limit]]
 
     def propose(self, title, content, reason, record_id=None, expected_revision=None,
-                kind="profile", sensitivity="private", source_ids=None, allow_restricted=False):
+                kind="profile", sensitivity="private", source_ids=None, allow_restricted=False,
+                claim_type=None):
         checked_text(reason, "reason", 2000)
         proposed = self._new(title, content, kind, sensitivity, [], "AI proposal", "confirmed")
         sources = [] if source_ids is None else source_ids
         if not isinstance(sources, list) or len(sources) > 50:
             raise ValueError("At most 50 source IDs are allowed")
+        if claim_type is not None:
+            if claim_type not in ("user_statement", "inference", "conflict") or not sources:
+                raise ValueError("Insights require a valid claim_type and evidence source IDs")
+            proposed["claim_type"] = claim_type
         with self.locked():
             for sid in sources:
                 evidence = self._get(sid)
                 self._visible(evidence, allow_restricted)
+                if (claim_type == "user_statement" and
+                        not (evidence.get("conversation", {}).get("role") == "user" or
+                             evidence["status"] == "self_report" or
+                             evidence.get("claim_type") == "user_statement")):
+                    raise ValueError("A user statement requires user-origin evidence, not assistant replies or inferences")
                 if evidence["sensitivity"] == "restricted":
                     proposed["sensitivity"] = "restricted"
             if record_id:
@@ -221,6 +233,11 @@ class Store:
                     raise ValueError("Revision conflict; read the latest record first")
                 if current["kind"] != kind:
                     raise ValueError("Cannot change record kind")
+                if claim_type is None and "claim_type" in current:
+                    proposed["claim_type"] = current["claim_type"]
+                sources = list(dict.fromkeys(current.get("source_ids", []) + sources))
+                if len(sources) > 50:
+                    raise ValueError("Update exceeds 50 evidence IDs; split the insight")
                 inherited_sensitivity = "restricted" if "restricted" in (proposed["sensitivity"], current["sensitivity"]) else "private"
                 proposed.update(id=current["id"], created_at=current["created_at"],
                                 revision=current["revision"] + 1, tags=current["tags"],

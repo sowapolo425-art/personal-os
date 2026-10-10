@@ -8,6 +8,7 @@ import pytest
 from personal_os.dashboard import make_server
 from personal_os.store import Store
 from personal_os.importer import parse_import, commit_import
+from personal_os.conversations import ingest_conversation
 
 
 @pytest.fixture
@@ -126,3 +127,43 @@ def test_graph_hides_restricted_nodes_and_configuration_uses_current_vault(dashb
     assert old["imported_at"] in snapshot["created_dates"]
     config = json.load(request(address, "/api/config"))["mcpServers"]["personal-os"]
     assert str(store.root) in config["args"] and config["args"][-1] == "serve"
+
+
+def test_conversations_and_scoped_analysis_http(dashboard):
+    store, address = dashboard
+    saved = ingest_conversation(store, "fictional-client", "c1", "历史", [
+        {"message_id": "m1", "role": "user", "content": "希望学绘画"}])
+    assert json.load(request(address, "/api/conversations"))[0]["message_count"] == 1
+    secret = store.capture("受限", "RESTRICTED_ANALYSIS", sensitivity="restricted")
+    body = {"record_ids": saved["record_ids"], "purpose": "分析目标"}
+    result = json.load(request(address, "/api/analysis-pack", body))
+    assert result["record_count"] == 1 and result["records"][0]["content"] == "希望学绘画"
+    assert "RESTRICTED_ANALYSIS" not in json.dumps(result)
+    with pytest.raises(HTTPError):
+        request(address, "/api/analysis-pack", {"record_ids": [secret["id"]], "purpose": "目标"})
+    for value in ("true", 1):
+        with pytest.raises(HTTPError):
+            request(address, "/api/analysis-pack", {"record_ids": [secret["id"]], "purpose": "目标", "restricted": value})
+    assert json.load(request(address, "/api/analysis-pack", {
+        "record_ids": [secret["id"]], "purpose": "目标", "restricted": True}))["record_count"] == 1
+    with pytest.raises(HTTPError) as error:
+        request(address, "/api/analysis-pack", body, headers={"Content-Type": "application/json", "Origin": "https://external.invalid"})
+    assert error.value.code == 403
+    assert "copy-history-task" in request(address, "/memory.js").read().decode()
+
+
+def test_docx_upload_preview_and_material_queue_http(dashboard):
+    import io
+    import zipfile
+    store, address = dashboard
+    memory = io.BytesIO()
+    with zipfile.ZipFile(memory, "w") as archive:
+        archive.writestr("word/document.xml", '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>虚构事务</w:t></w:r></w:p></w:body></w:document>')
+    body = {"filename": "fictional.docx", "data": base64.b64encode(memory.getvalue()).decode()}
+    preview = json.load(request(address, "/api/import-preview", body))
+    assert store.search() == [] and preview["items"][0]["content"] == "虚构事务"
+    json.load(request(address, "/api/import-commit", {"preview_id": preview["preview_id"],
+        "keys": [preview["items"][0]["key"]], "sensitivity": "private"}))
+    sources = json.load(request(address, "/api/extraction-sources"))
+    assert len(sources) == 1 and sources[0]["state"] == "needs_extraction"
+    assert store.search(kind="profile") == []

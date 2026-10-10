@@ -20,7 +20,7 @@ command = 'D:\tools\personal-os\.venv\Scripts\python.exe'
 args = ['-m', 'personal_os.cli', '--vault', 'D:\PersonalData\my-vault', 'serve']
 ```
 
-请用 Codex 的 MCP 列表检查连接，确认出现四个工具。
+请用 Codex 的 MCP 列表检查连接，确认出现十一个工具（四个原有工具与七个提取/分析工具）。
 来源：[OpenAI 官方 MCP 文档](https://developers.openai.com/codex/mcp/)，2026-10-10 已读取。
 本文档示例已按官方格式编写，并核对了本机 `codex mcp add --help`，尚未在实际 Codex 客户端注册或调用。
 
@@ -52,7 +52,7 @@ ZCode 与 WorkBuddy 的当前版本、具体配置页面和 stdio 支持尚未�
 
 ## 通用验收
 
-1. 客户端能列出 `capture_record`、`search_records`、`read_record`、`propose_record`。
+1. 客户端能列出 `capture_record`、`search_records`、`read_record`、`propose_record`、`ingest_conversation`、`list_conversations`、`mark_conversation_processed`、`propose_insight`、`prepare_analysis`、`list_extraction_sources`、`mark_source_processed`。
 2. 用虚构内容写入一条记录，再搜索并读取同一 ID。
 3. 提交个人档案草稿，确认正式档案还未变化。
 4. 用户在本地审核草稿，批准后再读取正式档案。

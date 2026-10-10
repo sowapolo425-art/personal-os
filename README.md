@@ -1,6 +1,6 @@
 # Personal OS · 本地个人数据框架
 
-[![Version](https://img.shields.io/badge/Version-0.3.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.4.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
 [![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)
@@ -14,6 +14,20 @@ Personal OS 是一个可自用、可修改的开源个人资料框架与本地 M
 [English](README.en.md) · [接入指南](docs/AGENTS.md) · [数据规范](docs/DATA-SPEC.md) · [AI 交互协议](docs/AI-PROTOCOL.md) · [隐私与边界](docs/PRIVACY.md) · [验证记录](docs/VERIFICATION.md)
 
 ![本地面板：完全虚构的演示资料](docs/images/dashboard.png)
+
+## 跨 Agent 记忆 · v0.4
+
+在你使用的 Agent 中发送“整理我可访问的历史对话，保存到 Personal OS”。Agent 按统一规则保存原话、提交有证据的结论草稿；不同软件连接同一个本地资料库，让信息持续汇聚。
+
+- **跨软件来源**：保留软件、会话、消息、角色和原始时间，区分用户表达与 AI 回复。
+- **重复与进度**：稳定消息 ID 去重，新增或修改消息提示再次提取；Agent 报告的完成状态与用户审核分开。
+- **结论审核**：区分用户陈述、AI 推测和矛盾，证据可追溯；更新保留旧来源。
+- **自主分析**：面板选择、预览并导出资料，或通过 MCP 提供给其他 Agent；你自己的 API 程序也可读取分析包。
+
+上传文件、日常想法和事务也进入同一套提取流程。支持文字 PDF、DOCX、MD/TXT 和对话 JSON；原文留在本地，Agent 分析后提交草稿。
+
+面板新增“跨 Agent 记忆”和“数据分析”。[完整使用说明与提取契约](docs/HISTORY-EXTRACTION.md)。
+项目不会自行读取各软件全部历史，也不调用模型 API；历史访问范围由对应 Agent 决定，品牌级全历史读取尚未验证。
 
 ## 更容易开始 · v0.3
 

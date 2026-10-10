@@ -18,10 +18,10 @@ async function readTextFile(file){if(file.size>8*1024*1024)throw new Error('文�
 $('import-file').onchange=async()=>{
   const file=$('import-file').files[0];if(!file)return;
   importPreview=null;$('import-actions').hidden=true;$('import-preview').replaceChildren();$('import-status').textContent='正在本地解析…';
-  try{const result=await api('/api/import-preview',{filename:file.name,text:await readTextFile(file)});importPreview=result;
+  try{if(file.size>8*1024*1024)throw new Error('文件超过 8 MB，请先拆分。');const binary=/\.(pdf|docx)$/i.test(file.name);const body=binary?{filename:file.name,data:await fileBase64(file)}:{filename:file.name,text:await readTextFile(file)};const result=await api('/api/import-preview',body);importPreview=result;
     $('import-status').textContent=`识别到 ${result.items.length} 条资料，${result.items.filter(i=>i.duplicate).length} 条已存在。尚未写入资料库。`;
     result.items.forEach(item=>{const box=node('details','','import-item'),summary=node('summary'),label=node('label'),check=node('input');check.type='checkbox';check.value=item.key;check.checked=!item.duplicate;check.disabled=item.duplicate;label.append(check,node('span',item.title+(item.duplicate?' · 已存在，将跳过':'')));summary.append(label);box.append(summary,node('pre',item.content));$('import-preview').append(box);});$('import-actions').hidden=false;
-  }catch(e){$('import-status').textContent='无法导入：'+e.message;notice('导入预览未完成，请检查文件格式和 UTF-8 编码。',true);}
+  }catch(e){$('import-status').textContent='无法导入：'+e.message;notice('导入预览未完成，请检查文件格式；扫描件需先由 Agent 做文字识别。',true);}
 };
 $('commit-import').onclick=async()=>{if(!importPreview)return;const keys=[...document.querySelectorAll('#import-preview input:checked')].map(i=>i.value);if(!keys.length){notice('请选择至少一条新资料。',true);return;}const button=$('commit-import');button.disabled=true;try{const result=await api('/api/import-commit',{preview_id:importPreview.preview_id,keys,sensitivity:$('import-sensitivity').value});notice(`已导入 ${result.imported} 条，跳过重复 ${result.skipped} 条。`+($('import-sensitivity').value==='restricted'?'资料默认为受限；勾选“显示受限资料”可查看。':''));$('import-actions').hidden=true;importPreview=null;await load();}catch(e){notice('导入未完成：'+e.message,true);}finally{button.disabled=false;}};
 function requestOptions(body){return{method:'POST',headers:{'Content-Type':'application/json','X-Personal-OS':'dashboard'},body:JSON.stringify(body)};}

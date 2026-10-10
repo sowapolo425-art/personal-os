@@ -112,8 +112,8 @@ def parse_import(filename, text):
 
 def preview_import(store, items):
     with store.locked():
-        existing = {fingerprint(r["content"]) for r in store._all()}
-    return [{**item, "duplicate": item["key"] in existing} for item in items]
+        existing = {(r["source"], fingerprint(r["content"])) for r in store._all()}
+    return [{**item, "duplicate": ("local import / " + item["filename"], item["key"]) in existing} for item in items]
 
 
 def commit_import(store, items, keys, sensitivity="restricted"):
@@ -126,11 +126,12 @@ def commit_import(store, items, keys, sensitivity="restricted"):
         raise ValueError("Selection does not belong to this preview")
     imported, skipped = [], 0
     with store.locked():
-        existing = {fingerprint(r["content"]) for r in store._all()}
+        existing = {(r["source"], fingerprint(r["content"])) for r in store._all()}
         for item in items:
             if item["key"] not in selected:
                 continue
-            if item["key"] in existing:
+            source_key = ("local import / " + item["filename"], item["key"])
+            if source_key in existing:
                 skipped += 1
                 continue
             record = store._new(item["title"], item["content"], "knowledge", sensitivity, ["导入资料"],
@@ -141,6 +142,6 @@ def commit_import(store, items, keys, sensitivity="restricted"):
                 record["created_at"] = item["source_created_at"]
             store._save(record)
             store._audit("import", record["id"])
-            existing.add(item["key"])
+            existing.add(source_key)
             imported.append(record["id"])
     return {"imported": len(imported), "skipped": skipped, "record_ids": imported}

@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 from .store import Store, checked_id
 from .importer import parse_import, preview_import, commit_import
 from .backup import create_backup, restore_backup
+from .conversations import list_conversations, list_sources, analysis_pack
 
 
 def snapshot(store, restricted=False, query="", kind=""):
@@ -51,7 +52,8 @@ def snapshot(store, restricted=False, query="", kind=""):
             "total": len(records), "confirmed": sum(r["status"] == "confirmed" for r in records),
             "pending": len(proposals), "kinds": dict(Counter(r["kind"] for r in records)),
             "created_dates": [r.get("imported_at", r["created_at"]) for r in records],
-            "records": [{k: r[k] for k in fields} | {"excerpt": r["content"][:180]} for r in matching[:200]],
+            "records": [{k: r[k] for k in fields} | {"excerpt": r["content"][:180],
+                        "claim_type": r.get("claim_type"), "conversation": r.get("conversation")} for r in matching[:200]],
             "matching": len(matching), "proposals": proposals, "restricted": restricted,
             "graph": {"nodes": [{k: r[k] for k in ("id", "title", "kind")} for r in graph_records],
                       "edges": [e for e in edges if e["source"] in graph_ids and e["target"] in graph_ids],
@@ -110,7 +112,7 @@ def make_server(vault, port=8765):
                 url = urlsplit(self.path)
                 params = parse_qs(url.query)
                 restricted = params.get("restricted", ["0"])[0] == "1"
-                assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/features.js": ("features.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
+                assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/features.js": ("features.js", "text/javascript"), "/memory.js": ("memory.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
                 if url.path in assets:
                     name, mime = assets[url.path]
                     self.send(200, files("personal_os").joinpath("static", name).read_bytes(), mime + "; charset=utf-8")
@@ -120,6 +122,10 @@ def make_server(vault, port=8765):
                     self.send(200, store.get(params.get("id", [""])[0], restricted))
                 elif url.path == "/api/history":
                     self.send(200, history(store, params.get("id", [""])[0], restricted))
+                elif url.path == "/api/conversations":
+                    self.send(200, list_conversations(store, restricted))
+                elif url.path == "/api/extraction-sources":
+                    self.send(200, list_sources(store, restricted))
                 elif url.path == "/api/config":
                     args = ["-m", "personal_os.cli", "--vault", str(store.root), "serve"]
                     self.send(200, {"mcpServers": {"personal-os": {"command": sys.executable, "args": args}}})
@@ -148,8 +154,14 @@ def make_server(vault, port=8765):
                 elif self.path == "/api/capture":
                     result = store.capture(data["title"], data["content"], data.get("kind", "thought"),
                                            data.get("sensitivity", "private"), source="local dashboard / user input")
+                elif self.path == "/api/analysis-pack":
+                    result = analysis_pack(store, data["record_ids"], data["purpose"], data.get("restricted") is True)
                 elif self.path == "/api/import-preview":
-                    items = parse_import(data["filename"], data["text"])
+                    if "data" in data:
+                        from .documents import parse_document
+                        items = parse_document(data["filename"], base64.b64decode(data["data"], validate=True))
+                    else:
+                        items = parse_import(data["filename"], data["text"])
                     # Preview stays only in process memory, expires after 30 minutes.
                     expired = [key for key, value in previews.items() if time.monotonic() - value[0] > 1800]
                     for key in expired:

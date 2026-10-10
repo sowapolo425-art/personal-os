@@ -31,6 +31,11 @@ def main():
     backup.add_argument("--output", required=True)
     restore_zip = sub.add_parser("restore-backup", help="Restore to a new adjacent vault")
     restore_zip.add_argument("archive")
+    export = sub.add_parser("analysis-pack", help="Export selected records for your own Agent or model API")
+    export.add_argument("--ids", nargs="+", required=True)
+    export.add_argument("--purpose", required=True)
+    export.add_argument("--output", required=True)
+    export.add_argument("--allow-restricted", action="store_true")
     args = parser.parse_args()
     store = Store(args.vault)
     try:
@@ -57,6 +62,17 @@ def main():
             result = store.review(args.id, args.command == "approve")
         elif args.command == "delete":
             result = store.delete(args.id, args.revision)
+        elif args.command == "analysis-pack":
+            from pathlib import Path
+            from .conversations import analysis_pack
+            destination = Path(args.output).expanduser().resolve()
+            if destination.is_relative_to(store.root):
+                raise ValueError("Save analysis exports outside the active vault")
+            pack = analysis_pack(store, args.ids, args.purpose, args.allow_restricted)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("x", encoding="utf-8") as stream:
+                json.dump(pack, stream, ensure_ascii=False, indent=2)
+            result = {"output": str(destination), "record_count": pack["record_count"], "model_called": False}
         elif args.command == "backup":
             from pathlib import Path
             from .backup import create_backup

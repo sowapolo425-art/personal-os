@@ -19,7 +19,9 @@ def test_real_stdio_mcp_roundtrip(tmp_path):
                 await session.initialize()
                 tools = await session.list_tools()
                 names = {t.name for t in tools.tools}
-                assert names == {"capture_record", "search_records", "read_record", "propose_record"}
+                assert names == {"capture_record", "search_records", "read_record", "propose_record",
+                                 "ingest_conversation", "list_conversations", "mark_conversation_processed",
+                                 "propose_insight", "prepare_analysis", "list_extraction_sources", "mark_source_processed"}
                 saved = await session.call_tool("capture_record", {"title": "虚构演示", "content": "练习复盘", "kind": "thought"})
                 assert not saved.isError
                 result = await session.call_tool("search_records", {"query": "复盘"})
@@ -36,8 +38,32 @@ def test_real_stdio_mcp_roundtrip(tmp_path):
                 assert approval.returncode == 0, approval.stderr
                 approved = await session.call_tool("read_record", {"record_id": pending["record"]["id"]})
                 assert not approved.isError and "confirmed" in str(approved.content)
+                intake = await session.call_tool("ingest_conversation", {"agent": "fictional-agent",
+                    "conversation_id": "session-1", "title": "虚构历史", "messages": [
+                        {"message_id": "m1", "role": "user", "content": "我希望学习绘画"}]})
+                assert not intake.isError
+                listed = await session.call_tool("list_conversations", {})
+                assert not listed.isError and "fictional-agent" in str(listed.content)
+                from personal_os.conversations import list_conversations
+                conversation = list_conversations(Store(vault))[0]
+                insight = await session.call_tool("propose_insight", {"title": "学习目标", "content": "学习绘画",
+                    "reason": "用户表达", "claim_type": "user_statement", "source_ids": conversation["record_ids"], "kind": "goal"})
+                assert not insight.isError and Store(vault).search(kind="goal") == []
+                pack = await session.call_tool("prepare_analysis", {"record_ids": conversation["record_ids"], "purpose": "分析学习目标"})
+                assert not pack.isError and "personal-os-analysis" in str(pack.content)
+                checkpoint = await session.call_tool("mark_conversation_processed", {"agent": "fictional-agent",
+                    "conversation_id": "session-1", "fingerprint": conversation["fingerprint"]})
+                assert not checkpoint.isError and list_conversations(Store(vault))[0]["state"] == "processed"
+                materials = await session.call_tool("list_extraction_sources", {})
+                assert not materials.isError and "虚构演示" in str(materials.content)
+                from personal_os.conversations import list_sources
+                material = list_sources(Store(vault))[0]
+                done = await session.call_tool("mark_source_processed", {"record_id": material["id"], "fingerprint": material["fingerprint"]})
+                assert not done.isError
+                assert "list_extraction_sources" in str((await session.get_prompt("extract_materials")).messages)
                 denied = await session.call_tool("read_record", {"record_id": "../escape"})
                 assert denied.isError
                 assert str((await session.list_resources()).resources[0].uri) == "personal-os://protocol"
-                assert (await session.list_prompts()).prompts[0].name == "personal_review"
+                assert {p.name for p in (await session.list_prompts()).prompts} == {"personal_review", "extract_history", "extract_materials"}
+                assert "ingest_conversation" in str((await session.get_prompt("extract_history")).messages)
     asyncio.run(asyncio.wait_for(run(), timeout=40))

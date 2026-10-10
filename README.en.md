@@ -1,6 +1,6 @@
 # Personal OS
 
-[![Version](https://img.shields.io/badge/Version-0.3.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.4.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
 [![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)
@@ -11,6 +11,20 @@ Local Markdown personal data and memory tools for your existing MCP Agent.
 
 You run the server and own the vault. No accounts, hosted storage, model calls or telemetry.
 Use your own Agent and model provider. Cloud-backed Agents may send retrieved records to their provider.
+
+## Cross-Agent memory (v0.4)
+
+Ask your existing Agent to extract accessible conversation history into the same local vault.
+Seven new MCP tools provide provenance-preserving conversation intake, stable-ID deduplication,
+extraction checkpoints, evidenced insight proposals and selected-record analysis packs.
+Uploaded documents, daily thoughts and events also enter the same extraction workflow.
+Text PDF/DOCX, UTF-8 MD/TXT and conversation JSON imports are supported; scanned images require OCR elsewhere.
+User statements, AI inferences and conflicts remain distinct through human approval.
+The dashboard includes conversation progress and previewable JSON exports for your own Agent or API client.
+
+This project does not scrape client histories, grant history access, call models or store API keys.
+Actual history access depends on the client; no brand-wide history integration is certified.
+See [history extraction contract](docs/HISTORY-EXTRACTION.md).
 
 ## Local dashboard (v0.2)
 
@@ -51,7 +65,8 @@ Configure your Agent to start the virtual environment's Python with
 `-m personal_os.cli --vault /absolute/path/to/private-vault serve` as a **stdio MCP server**.
 See [Agent configuration](docs/AGENTS.md) for JSON and Codex TOML examples.
 
-Tools: `capture_record`, `search_records`, `read_record`, `propose_record`.
+Core tools: `capture_record`, `search_records`, `read_record`, `propose_record`.
+Seven extraction/analysis tools are listed in the [history and material contract](docs/HISTORY-EXTRACTION.md).
 Profile creation and all formal updates require proposals. There is no MCP approval tool.
 Review with `show-proposal ID`, then `approve ID` or `reject ID`, using the same `--vault` option.
 This is a workflow boundary, not protection against an Agent with unrestricted shell access.
