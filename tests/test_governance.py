@@ -111,6 +111,14 @@ def test_restricted_impact_and_lifecycle_cannot_be_exposed(store):
     with pytest.raises(ValueError,match='Restricted'): store.update_memory(root['id'],1,{'state':'inactive'},False)
 
 
+def test_later_restriction_hides_earlier_change_ids(store):
+    r=store.capture('虚构','测试')
+    p=store.propose('虚构','测试','收紧权限',r['id'],1,'record',sensitivity='restricted')
+    store.review(p['proposal_id'],True)
+    assert r['id'] not in json.dumps(changes(store,0))
+    assert r['id'] in json.dumps(changes(store,0,True))
+
+
 def test_backup_retains_revocation_and_change_feed(store):
     root=store.capture('原话','测试'); derived=insight(store,root)
     store.delete(root['id'],1)

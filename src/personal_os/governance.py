@@ -81,8 +81,10 @@ def changes(store, after=0, restricted=False):
         path = store._safe(store.meta / "changes.jsonl")
         events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
         pending = [e for e in events if e["sequence"] > after][:100]
+        # Later restriction also hides earlier notifications when polling from zero.
+        restricted_ids = {e["id"] for e in events if e["sensitivity"] == "restricted"}
         visible = [{k: v for k, v in e.items() if k != "sensitivity"} for e in pending
-                   if restricted or e["sensitivity"] != "restricted"]
+                   if restricted or e["id"] not in restricted_ids]
         return dict(events=visible, cursor=pending[-1]["sequence"] if pending else after,
                     has_more=bool(pending and events[-1]["sequence"] > pending[-1]["sequence"]),
                     note="Invalidate your cached records and refetch. Already-read contexts, exports and old backups require external cleanup.")
