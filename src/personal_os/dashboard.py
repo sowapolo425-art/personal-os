@@ -147,6 +147,8 @@ def make_server(vault, port=8765):
                 if not 1 <= length <= maximum:
                     raise ValueError("Invalid request size")
                 data = json.loads(self.rfile.read(length))
+                if not isinstance(data, dict):
+                    raise ValueError("Request body must be a JSON object")
                 if self.path == "/api/review":
                     if data.get("action") not in ("approve", "reject"):
                         raise ValueError("Invalid review action")

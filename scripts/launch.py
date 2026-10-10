@@ -23,6 +23,21 @@ def select_vault():
         return ""
 
 
+def load_preferences(path):
+    if not path.exists():
+        return {}
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(saved, dict) or not isinstance(saved.get("vault"), str) or not saved["vault"].strip():
+            raise ValueError("Invalid saved vault")
+        if not Path(saved["vault"]).expanduser().is_dir():
+            raise ValueError("Saved vault no longer exists")
+        return saved
+    except (ValueError, OSError):
+        print("Saved folder preference is unavailable. Please choose your vault again.", flush=True)
+        return {}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Set up and launch Personal OS locally")
     parser.add_argument("--vault", help="Use this folder instead of opening the folder selector")
@@ -34,7 +49,7 @@ def main():
         raise SystemExit("Python 3.11+ is required.")
     root = Path(__file__).resolve().parents[1]
     preferences = root / ".local" / "launcher.json"
-    saved = json.loads(preferences.read_text(encoding="utf-8")) if preferences.exists() else {}
+    saved = {} if args.vault or args.choose else load_preferences(preferences)
     chosen = args.vault or (None if args.choose else saved.get("vault")) or select_vault()
     if not chosen:
         print("Cancelled. No vault was created.")

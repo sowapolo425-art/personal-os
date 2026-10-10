@@ -1,6 +1,6 @@
 # Personal OS
 
-[![Version](https://img.shields.io/badge/Version-0.4.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.4.1-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
 [![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)

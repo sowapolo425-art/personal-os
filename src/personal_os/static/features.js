@@ -1,5 +1,5 @@
 'use strict';
-let importPreview=null;
+let importPreview=null,importRequest=0;
 let connectionConfig=null;
 function renderExtras(data){
   const graph=data.graph;
@@ -16,14 +16,36 @@ function renderExtras(data){
 }
 async function readTextFile(file){if(file.size>8*1024*1024)throw new Error('文件超过 8 MB，请先拆分。');return new TextDecoder('utf-8',{fatal:true}).decode(await file.arrayBuffer());}
 $('import-file').onchange=async()=>{
-  const file=$('import-file').files[0];if(!file)return;
-  importPreview=null;$('import-actions').hidden=true;$('import-preview').replaceChildren();$('import-status').textContent='正在本地解析…';
-  try{if(file.size>8*1024*1024)throw new Error('文件超过 8 MB，请先拆分。');const binary=/\.(pdf|docx)$/i.test(file.name);const body=binary?{filename:file.name,data:await fileBase64(file)}:{filename:file.name,text:await readTextFile(file)};const result=await api('/api/import-preview',body);importPreview=result;
+  const request=++importRequest,file=$('import-file').files[0];
+  importPreview=null;$('import-actions').hidden=true;$('import-preview').replaceChildren();
+  if(!file){$('import-status').textContent='';return;}
+  $('import-status').textContent='正在本地解析…';
+  try{
+    if(file.size>8*1024*1024)throw new Error('文件超过 8 MB，请先拆分。');
+    const binary=/\.(pdf|docx)$/i.test(file.name);
+    const body=binary?{filename:file.name,data:await fileBase64(file)}:{filename:file.name,text:await readTextFile(file)};
+    if(request!==importRequest)return;
+    const result=await api('/api/import-preview',body);
+    if(request!==importRequest)return;
+    importPreview=result;
     $('import-status').textContent=`识别到 ${result.items.length} 条资料，${result.items.filter(i=>i.duplicate).length} 条已存在。尚未写入资料库。`;
-    result.items.forEach(item=>{const box=node('details','','import-item'),summary=node('summary'),label=node('label'),check=node('input');check.type='checkbox';check.value=item.key;check.checked=!item.duplicate;check.disabled=item.duplicate;label.append(check,node('span',item.title+(item.duplicate?' · 已存在，将跳过':'')));summary.append(label);box.append(summary,node('pre',item.content));$('import-preview').append(box);});$('import-actions').hidden=false;
-  }catch(e){$('import-status').textContent='无法导入：'+e.message;notice('导入预览未完成，请检查文件格式；扫描件需先由 Agent 做文字识别。',true);}
+    result.items.forEach(item=>{const box=node('details','','import-item'),summary=node('summary'),label=node('label'),check=node('input');check.type='checkbox';check.value=item.key;check.checked=!item.duplicate;check.disabled=item.duplicate;label.append(check,node('span',item.title+(item.duplicate?' · 已存在，将跳过':'')));summary.append(label);box.append(summary,node('pre',item.content));$('import-preview').append(box);});
+    $('import-actions').hidden=false;
+  }catch(e){if(request===importRequest){$('import-status').textContent='无法导入：'+e.message;notice('导入预览未完成，请检查文件格式；扫描件需先由 Agent 做文字识别。',true);}}
 };
-$('commit-import').onclick=async()=>{if(!importPreview)return;const keys=[...document.querySelectorAll('#import-preview input:checked')].map(i=>i.value);if(!keys.length){notice('请选择至少一条新资料。',true);return;}const button=$('commit-import');button.disabled=true;try{const result=await api('/api/import-commit',{preview_id:importPreview.preview_id,keys,sensitivity:$('import-sensitivity').value});notice(`已导入 ${result.imported} 条，跳过重复 ${result.skipped} 条。`+($('import-sensitivity').value==='restricted'?'资料默认为受限；勾选“显示受限资料”可查看。':''));$('import-actions').hidden=true;importPreview=null;await load();}catch(e){notice('导入未完成：'+e.message,true);}finally{button.disabled=false;}};
+$('commit-import').onclick=async()=>{
+  if(!importPreview)return;
+  const keys=[...document.querySelectorAll('#import-preview input:checked')].map(i=>i.value);
+  if(!keys.length){notice('请选择至少一条新资料。',true);return;}
+  const button=$('commit-import'),previewId=importPreview.preview_id,sensitivity=$('import-sensitivity').value;
+  button.disabled=true;$('import-file').disabled=true;
+  try{
+    const result=await api('/api/import-commit',{preview_id:previewId,keys,sensitivity});
+    notice(`已导入 ${result.imported} 条，跳过重复 ${result.skipped} 条。`+(sensitivity==='restricted'?'资料默认为受限；勾选“显示受限资料”可查看。':''));
+    if(importPreview?.preview_id===previewId){$('import-actions').hidden=true;importPreview=null;$('import-file').value='';}
+    await load();
+  }catch(e){notice('导入未完成：'+e.message,true);}finally{button.disabled=false;$('import-file').disabled=false;}
+};
 function requestOptions(body){return{method:'POST',headers:{'Content-Type':'application/json','X-Personal-OS':'dashboard'},body:JSON.stringify(body)};}
 $('download-backup').onclick=async()=>{if(!confirm('备份包含全部受限资料、草稿与历史，且未加密。确认下载到你自己控制的位置？'))return;const button=$('download-backup');button.disabled=true;try{const response=await fetch('/api/backup',requestOptions({}));if(!response.ok)throw new Error((await response.json()).error);const blob=await response.blob();const url=URL.createObjectURL(blob),a=node('a');a.href=url;a.download='personal-os-backup-'+new Date().toISOString().slice(0,10)+'.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);notice('备份已生成并交给浏览器下载，请保管好这个明文文件。');}catch(e){notice('备份失败：'+e.message,true);}finally{button.disabled=false;}};
 async function fileBase64(file){if(file.size>32*1024*1024)throw new Error('备份超过 32 MB。');return await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('无法读取文件'));reader.readAsDataURL(file);});}

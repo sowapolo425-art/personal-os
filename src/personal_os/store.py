@@ -216,20 +216,12 @@ class Store:
                 raise ValueError("Insights require a valid claim_type and evidence source IDs")
             proposed["claim_type"] = claim_type
         with self.locked():
-            for sid in sources:
-                evidence = self._get(sid)
-                self._visible(evidence, allow_restricted)
-                if (claim_type == "user_statement" and
-                        not (evidence.get("conversation", {}).get("role") == "user" or
-                             evidence["status"] == "self_report" or
-                             evidence.get("claim_type") == "user_statement")):
-                    raise ValueError("A user statement requires user-origin evidence, not assistant replies or inferences")
-                if evidence["sensitivity"] == "restricted":
-                    proposed["sensitivity"] = "restricted"
             if record_id:
                 current = self._get(record_id)
                 self._visible(current, allow_restricted)
-                if expected_revision != current["revision"]:
+                if current.get("conversation") or current["status"] == "imported_source":
+                    raise ValueError("Source originals cannot be overwritten; propose a separate insight")
+                if type(expected_revision) is not int or expected_revision != current["revision"]:
                     raise ValueError("Revision conflict; read the latest record first")
                 if current["kind"] != kind:
                     raise ValueError("Cannot change record kind")
@@ -244,6 +236,20 @@ class Store:
                                 sensitivity=inherited_sensitivity)
             elif expected_revision is not None:
                 raise ValueError("New records have no expected revision")
+            evidence_rows = []
+            sources = list(dict.fromkeys(sources))
+            for sid in sources:
+                evidence = self._get(sid)
+                self._visible(evidence, allow_restricted)
+                evidence_rows.append(evidence)
+                if evidence["sensitivity"] == "restricted":
+                    proposed["sensitivity"] = "restricted"
+            if proposed.get("claim_type") == "user_statement" and not any(
+                    e.get("conversation", {}).get("role") == "user" or
+                    e["status"] == "self_report" or e.get("claim_type") == "user_statement"
+                    for e in evidence_rows):
+                raise ValueError("A user statement requires user-origin evidence, not assistant replies or inferences")
+            proposed["source_revisions"] = {e["id"]: e["revision"] for e in evidence_rows}
             pid = uuid.uuid4().hex
             proposed["source_ids"] = sources
             proposal = dict(id=pid, record=proposed, expected_revision=expected_revision,
@@ -267,6 +273,16 @@ class Store:
                 raise ValueError("Proposal already reviewed")
             if approve:
                 record = proposal["record"]
+                for sid in record.get("source_ids", []):
+                    try:
+                        evidence = self._get(sid)
+                    except ValueError as exc:
+                        raise ValueError("Evidence is missing; submit a new proposal") from exc
+                    expected = record.get("source_revisions", {}).get(sid)
+                    if expected is not None and expected != evidence["revision"]:
+                        raise ValueError("Evidence changed; submit a new proposal using the latest sources")
+                    if evidence["sensitivity"] == "restricted":
+                        record["sensitivity"] = "restricted"
                 if proposal["expected_revision"] is not None:
                     current = self._get(record["id"])
                     if current["revision"] != proposal["expected_revision"]:

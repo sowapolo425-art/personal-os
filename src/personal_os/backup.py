@@ -18,6 +18,20 @@ MAX_FILES = 5000
 MANIFEST = "personal-os-backup.json"
 
 
+def checked_archive_names(names):
+    canonical = set()
+    for name in names:
+        parts = PurePosixPath(name).parts
+        if any(p.endswith((".", " ")) or any(ord(c) < 32 or c in '<>:"\\|?*' for c in p)
+               or p.split(".")[0].upper() in {"CON", "PRN", "AUX", "NUL", *[f"COM{i}" for i in range(1, 10)], *[f"LPT{i}" for i in range(1, 10)]}
+               for p in parts):
+            raise ValueError("Nonportable backup path")
+        key = name.casefold()
+        if key in canonical:
+            raise ValueError("Case-insensitive backup path collision")
+        canonical.add(key)
+
+
 def create_backup(store):
     memory = io.BytesIO()
     manifest = {"format": "personal-os-backup", "version": 1, "created_at": now(), "files": []}
@@ -40,7 +54,11 @@ def create_backup(store):
                     raise ValueError("Vault exceeds backup limits (128 MB / 5000 files)")
                 manifest["files"].append({"path": relative, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
                 archive.writestr(relative, data)
-        archive.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8"))
+        checked_archive_names([i["path"] for i in manifest["files"]])
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
+        if len(manifest_bytes) > 1024 * 1024:
+            raise ValueError("Backup manifest exceeds 1 MB; reduce the file count or path lengths")
+        archive.writestr(MANIFEST, manifest_bytes)
         store._audit("backup", None)
     result = memory.getvalue()
     if len(result) > MAX_ARCHIVE:
@@ -64,6 +82,7 @@ def restore_backup(store, data):
             if (info.orig_filename != info.filename or path.is_absolute() or path.as_posix() != info.filename or "\\" in info.orig_filename or any(p in (".", "..") or ":" in p for p in path.parts)
                 or not path.parts or info.is_dir() or stat.S_ISLNK(info.external_attr >> 16)):
                 raise ValueError("Unsafe backup path or symbolic link")
+        checked_archive_names(names)
         if archive.getinfo(MANIFEST).file_size > 1024 * 1024:
             raise ValueError("Backup manifest exceeds limit")
         manifest = json.loads(archive.read(MANIFEST))

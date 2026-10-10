@@ -24,7 +24,7 @@ document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
   setView(b.dataset.view);
 });
 const originalExtras=renderExtras;
-renderExtras=function(data){originalExtras(data);renderAnalysisSelection(data);if(state.view==='memory'){loadConversations();loadMaterials();}};
+renderExtras=function(data){originalExtras(data);if(state.view==='analysis')renderAnalysisSelection(data);if(state.view==='memory'){loadConversations();loadMaterials();}};
 async function loadConversations(){
   const request=++conversationRequest, scope=restricted();
   if(!$('conversation-count').textContent)$('conversation-count').textContent='正在读取…';
@@ -68,10 +68,10 @@ async function loadMaterials(){
     if(rows.length>100)target.prepend(node('p','显示最近 100 份；Agent 可以查询完整待整理清单。','muted'));
   }catch(e){if(request===materialRequest){$('material-count').textContent='读取失败';notice(e.message,true);}}
 }
-function invalidateAnalysis(){analysisRequest++;analysisText=null;$('analysis-result').hidden=true;}
+function invalidateAnalysis(){analysisRequest++;analysisText=null;$('analysis-result').hidden=true;$('analysis-preview').textContent='';}
 function renderAnalysisSelection(data){
   const visible=new Set(data.records.map(r=>r.id));
-  for(const id of analysisSelected)if(!visible.has(id))analysisSelected.delete(id);
+  let removed=false;for(const id of analysisSelected)if(!visible.has(id)){analysisSelected.delete(id);removed=true;}if(removed)invalidateAnalysis();
   const target=$('analysis-selection');target.replaceChildren();
   const query=$('analysis-filter').value.toLocaleLowerCase();
   const rows=data.records.filter(r=>(r.title+' '+r.excerpt).toLocaleLowerCase().includes(query));

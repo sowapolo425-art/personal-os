@@ -57,13 +57,13 @@ def _groups(store, restricted):
 
 def _summary(store, key, rows):
     latest = {}
-    for record in sorted(rows, key=lambda r: (r["created_at"], r["id"])):
+    for record in sorted(rows, key=lambda r: (r["conversation"].get("sequence", 0), r["created_at"], r["id"])):
         latest[record["conversation"]["message_id"]] = record
     messages = sorted(latest.values(), key=lambda r: r["conversation"]["message_id"])
     fingerprint = digest([r["conversation"]["message_hash"] for r in messages])
     path = store._safe(store.meta / "extraction" / (key + ".json"))
     checkpoint = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    origin = max(rows, key=lambda r: r["created_at"])["conversation"]
+    origin = max(rows, key=lambda r: (r["conversation"].get("sequence", 0), r["created_at"]))["conversation"]
     return dict(key=key, agent=origin["agent"], conversation_id=origin["conversation_id"],
                 title=origin["title"], message_count=len(messages), saved_versions=len(rows),
                 record_ids=[r["id"] for r in messages], fingerprint=fingerprint,
@@ -122,6 +122,7 @@ def ingest_conversation(store, agent, conversation_id, title, messages, sensitiv
             for record in prepared:
                 record["sensitivity"] = "restricted"
         by_hash = {r["conversation"]["message_hash"]: r for r in existing}
+        sequence = max([len(existing), *[r["conversation"].get("sequence", 0) for r in existing]])
         ids, skipped = [], 0
         for record in prepared:
             known = by_hash.get(record["conversation"]["message_hash"])
@@ -129,6 +130,8 @@ def ingest_conversation(store, agent, conversation_id, title, messages, sensitiv
                 ids.append(known["id"])
                 skipped += 1
             else:
+                sequence += 1
+                record["conversation"]["sequence"] = sequence
                 store._save(record)
                 store._audit("conversation_ingest", record["id"])
                 by_hash[record["conversation"]["message_hash"]] = record

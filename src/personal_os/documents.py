@@ -4,7 +4,7 @@ import zipfile
 from pathlib import PurePosixPath
 from xml.etree import ElementTree
 
-from .importer import MAX_UPLOAD, MAX_ITEMS, fingerprint
+from .importer import MAX_UPLOAD, MAX_ITEMS, import_key
 from .store import MAX_TEXT
 
 
@@ -43,8 +43,12 @@ def parse_document(filename, data):
                     raise ValueError("DOCX body exceeds 8 MB")
                 body = ElementTree.fromstring(archive.read("word/document.xml"))
                 ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-                # Only w:t body text, excluding metadata and executable field codes.
-                paragraphs = ["".join(t.text or "" for t in p.findall(".//w:t", ns))
+                # Preserve line breaks/tabs; ignore field instructions and metadata.
+                tags = {"{" + ns["w"] + "}" + tag: value for tag, value in
+                        (("tab", "\t"), ("br", "\n"), ("cr", "\n"))}
+                text_tag = "{" + ns["w"] + "}t"
+                paragraphs = ["".join((element.text or "") if element.tag == text_tag
+                                      else tags.get(element.tag, "") for element in p.iter())
                               for p in body.findall(".//w:p", ns)]
                 sections.append(("正文", "\n".join(p for p in paragraphs if p.strip())))
         else:
@@ -62,8 +66,9 @@ def parse_document(filename, data):
             if not chunk.strip():
                 continue
             title = f"{filename} · {label}" + (f" · 片段 {offset // MAX_TEXT + 1}" if len(text) > MAX_TEXT else "")
-            items.append(dict(key=fingerprint(chunk), title=title, content=chunk,
-                              filename=filename, source_created_at=None))
+            locator = f"{label}/chunk:{offset // MAX_TEXT + 1}"
+            items.append(dict(key=import_key(filename, locator, chunk), title=title, content=chunk,
+                              locator=locator, filename=filename, source_created_at=None))
     if not items:
         raise ValueError("No extractable text; scanned PDFs/images require OCR by your Agent")
     if len(items) > MAX_ITEMS:

@@ -67,3 +67,35 @@ def test_real_stdio_mcp_roundtrip(tmp_path):
                 assert {p.name for p in (await session.list_prompts()).prompts} == {"personal_review", "extract_history", "extract_materials"}
                 assert "ingest_conversation" in str((await session.get_prompt("extract_history")).messages)
     asyncio.run(asyncio.wait_for(run(), timeout=40))
+
+
+def test_two_stdio_clients_keep_independent_restricted_permissions(tmp_path):
+    vault = tmp_path / "多客户端资料"
+    store = Store(vault)
+    store.init()
+    secret = store.capture("FICTIONAL_SECRET_TITLE", "FICTIONAL_SECRET_BODY", sensitivity="restricted")
+
+    async def run():
+        args = ["-m","personal_os.cli","--vault",str(vault),"serve"]
+        default = StdioServerParameters(command=sys.executable,args=args)
+        privileged = StdioServerParameters(command=sys.executable,args=[*args,"--allow-restricted"])
+        async with stdio_client(default) as (r1,w1), stdio_client(privileged) as (r2,w2):
+            async with ClientSession(r1,w1) as normal, ClientSession(r2,w2) as allowed:
+                await normal.initialize()
+                await allowed.initialize()
+                hidden = await normal.call_tool("list_extraction_sources",{})
+                assert "FICTIONAL_SECRET" not in str(hidden.content)
+                denied = await normal.call_tool("prepare_analysis",{"record_ids":[secret["id"]],"purpose":"test"})
+                assert denied.isError
+                pack = await allowed.call_tool("prepare_analysis",{"record_ids":[secret["id"]],"purpose":"test"})
+                assert not pack.isError and "FICTIONAL_SECRET_BODY" in str(pack.content)
+                draft = await allowed.call_tool("propose_insight",{"title":"受限派生结论","content":"虚构分析",
+                    "reason":"受限证据","source_ids":[secret["id"]],"claim_type":"inference"})
+                assert not draft.isError and store.proposals()[0]["record"]["sensitivity"] == "restricted"
+                intake = await allowed.call_tool("ingest_conversation",{"agent":"fictional-restricted",
+                    "conversation_id":"c","title":"受限会话","sensitivity":"restricted",
+                    "messages":[{"message_id":"1","role":"user","content":"虚构受限原文"}]})
+                assert not intake.isError
+                assert "fictional-restricted" not in str((await normal.call_tool("list_conversations",{})).content)
+                assert "fictional-restricted" in str((await allowed.call_tool("list_conversations",{})).content)
+    asyncio.run(asyncio.wait_for(run(),timeout=40))

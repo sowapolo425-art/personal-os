@@ -20,8 +20,34 @@ $('timeline').replaceChildren();const timeline=[...data.records].sort((a,b)=>b.c
 $('proposal-list').replaceChildren();data.proposals.forEach(p=>{const article=node('article','','panel proposal');article.append(node('span','待确认','chip pending'),node('h3',p.record.title),node('p',p.reason));const compare=node('div','','comparison');[[p.before?'原记录 · v'+p.before.revision:'原记录',p.before?.content||'这是新建档案，没有原记录。'],['建议内容 · v'+p.record.revision,p.record.content]].forEach(([title,body])=>{const panel=node('div');panel.append(node('strong',title),node('pre',body));compare.append(panel);});article.append(compare);if(p.record.claim_type)article.append(node('p','结论类型：'+({user_statement:'用户明确陈述',inference:'AI 推测',conflict:'矛盾待确认'})[p.record.claim_type],'chip pending'));const sources=node('div','依据：','muted');(p.record.source_ids||[]).forEach(id=>{const b=node('button',id.slice(0,8)+'…','text-button');b.onclick=()=>openRecord(id);sources.append(b);});if(!(p.record.source_ids||[]).length)sources.append(node('span','未关联证据记录，请仔细核对。'));article.append(sources);const actions=node('div','','actions');for(const action of ['approve','reject']){const b=node('button',action==='approve'?'批准，更新正式档案':'拒绝这份草稿',action==='approve'?'button primary':'button quiet');b.onclick=async()=>{if(!confirm(action==='approve'?'确认已核对内容与来源，并更新正式档案？':'确认拒绝这份草稿？'))return;b.disabled=true;try{await api('/api/review',{id:p.id,action});notice(action==='approve'?'已批准并更新正式档案。':'已拒绝草稿，正式档案保持原内容。');await load();}catch(e){notice('未完成审核：'+e.message,true);b.disabled=false;}};actions.append(b);}article.append(actions);$('proposal-list').append(article);});if(!data.proposals.length)$('proposal-list').append(node('div','没有待确认草稿。Agent 提交新建议后会显示在这里。','empty'));
 if(typeof renderExtras==='function')renderExtras(data);
 }
-async function openRecord(id){try{const query=new URLSearchParams({id,restricted:restricted()});const r=await api('/api/record?'+query);$('record-title').textContent=r.title;$('record-meta').textContent=`${names[r.kind]} · ${r.status==='confirmed'?'已确认':r.status==='imported_source'?'导入资料':r.status==='conversation_source'?(r.conversation?.role==='user'?'用户原话':'AI 回复'):'本人表达'} · v${r.revision} · ${format(r.updated_at)}`;$('record-content').textContent=r.content;$('record-sources').replaceChildren(node('p',r.source),node('small','记录 ID：'+r.id));if(r.conversation)$('record-sources').append(node('p',`来源软件：${r.conversation.agent} · 会话：${r.conversation.conversation_id} · 消息：${r.conversation.message_id} · 原始时间：${r.conversation.timestamp||'未提供'}`));if(r.claim_type)$('record-sources').append(node('p','结论类型：'+({user_statement:'用户明确陈述',inference:'AI 推测',conflict:'矛盾待确认'})[r.claim_type]));(r.source_ids||[]).forEach(sid=>{const b=node('button','查看依据 '+sid.slice(0,8),'text-button');b.onclick=()=>openRecord(sid);$('record-sources').append(b);});const revisions=await api('/api/history?'+query);$('record-history').replaceChildren();revisions.forEach(old=>{const details=node('details');details.append(node('summary',`v${old.revision} · ${format(old.updated_at)}`),node('pre',old.content));$('record-history').append(details);});if(!$('record-dialog').open)$('record-dialog').showModal();}catch(e){notice('无法打开记录：'+e.message,true);}}
-document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('all-records').onclick=()=>setView('records');$('refresh').onclick=load;$('restricted').onchange=()=>{$('record-dialog').close();load();};$('kind').onchange=load;let timer;$('query').oninput=()=>{clearTimeout(timer);timer=setTimeout(load,250);};$('new-note').onclick=()=>$('note-dialog').showModal();$('close-note').onclick=()=>$('note-dialog').close();$('close-record').onclick=()=>$('record-dialog').close();
+let recordRequest=0;
+function closeRecord(){
+  recordRequest++;
+  $('record-dialog').close();
+  for(const id of ['record-title','record-meta','record-content','record-sources','record-history'])$(id).replaceChildren();
+}
+async function openRecord(id){
+  const request=++recordRequest,scope=restricted();
+  try{
+    const query=new URLSearchParams({id,restricted:scope});
+    const [r,revisions]=await Promise.all([api('/api/record?'+query),api('/api/history?'+query)]);
+    if(request!==recordRequest||scope!==restricted())return;
+    $('record-title').textContent=r.title;
+    const status=r.status==='confirmed'?'已确认':r.status==='imported_source'?'导入资料':r.status==='conversation_source'?(r.conversation?.role==='user'?'用户原话':'AI 回复'):'本人表达';
+    $('record-meta').textContent=`${names[r.kind]} · ${status} · v${r.revision} · ${format(r.updated_at)}`;
+    $('record-content').textContent=r.content;
+    $('record-sources').replaceChildren(node('p',r.source),node('small','记录 ID：'+r.id));
+    if(r.import_locator)$('record-sources').append(node('p','文件位置：'+r.import_locator));
+    if(r.conversation)$('record-sources').append(node('p',`来源软件：${r.conversation.agent} · 会话：${r.conversation.conversation_id} · 消息：${r.conversation.message_id} · 原始时间：${r.conversation.timestamp||'未提供'}`));
+    if(r.claim_type)$('record-sources').append(node('p','结论类型：'+({user_statement:'用户明确陈述',inference:'AI 推测',conflict:'矛盾待确认'})[r.claim_type]));
+    (r.source_ids||[]).forEach(sid=>{const b=node('button','查看依据 '+sid.slice(0,8),'text-button');b.onclick=()=>openRecord(sid);$('record-sources').append(b);});
+    $('record-history').replaceChildren();
+    revisions.forEach(old=>{const details=node('details');details.append(node('summary',`v${old.revision} · ${format(old.updated_at)}`),node('pre',old.content));$('record-history').append(details);});
+    if(!$('record-dialog').open)$('record-dialog').showModal();
+  }catch(e){if(request===recordRequest&&scope===restricted())notice('无法打开记录：'+e.message,true);}
+}
+$('record-dialog').addEventListener('cancel',()=>{recordRequest++;});
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('all-records').onclick=()=>setView('records');$('refresh').onclick=load;$('restricted').onchange=()=>{closeRecord();load();};$('kind').onchange=load;let timer;$('query').oninput=()=>{clearTimeout(timer);timer=setTimeout(load,250);};$('new-note').onclick=()=>$('note-dialog').showModal();$('close-note').onclick=()=>$('note-dialog').close();$('close-record').onclick=closeRecord;
 for(const [key,value]of Object.entries(names)){const option=node('option',value);option.value=key;$('kind').append(option);if(key!=='profile')$('note-kind').append(option.cloneNode(true));}$('note-kind').value='thought';
 $('note-form').onsubmit=async event=>{event.preventDefault();const button=event.currentTarget.querySelector('[type=submit]');button.disabled=true;try{await api('/api/capture',{title:$('note-title').value,content:$('note-content').value,kind:$('note-kind').value,sensitivity:$('note-sensitivity').value});$('note-form').reset();$('note-kind').value='thought';$('note-dialog').close();notice('原始表达已保存到本地。');await load();}catch(e){notice('保存失败：'+e.message,true);}finally{button.disabled=false;}};
 load();setInterval(()=>{if(!document.hidden&&!$('note-dialog').open&&!$('record-dialog').open)load();},30000);

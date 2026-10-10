@@ -14,6 +14,22 @@ def fingerprint(content):
     return hashlib.sha256(content.replace("\r\n", "\n").encode("utf-8")).hexdigest()
 
 
+def import_key(filename, locator, content):
+    return fingerprint(json.dumps([filename, locator, fingerprint(content)], ensure_ascii=False))
+
+
+def existing_imports(store):
+    records = list(store._all())
+    return ({r["import_key"] for r in records if "import_key" in r},
+            {(r["source"], fingerprint(r["content"]), r["title"], r.get("source_created_at")) for r in records
+             if r["status"] == "imported_source" and "import_key" not in r})
+
+
+def duplicate(item, known, legacy):
+    return item["key"] in known or ("local import / " + item["filename"], fingerprint(item["content"]),
+                                    item["title"], item.get("source_created_at")) in legacy
+
+
 def source_date(value):
     if value is None:
         return None
@@ -37,10 +53,11 @@ def parse_import(filename, text):
     extension = PurePosixPath(filename).suffix.lower()
     items = []
 
-    def append(title, content, date=None):
+    def append(title, content, date=None, locator="document"):
         checked_text(content, "imported record", MAX_TEXT)
         title = str(title or filename)[:300]
-        items.append({"key": fingerprint(content), "title": title, "content": content,
+        items.append({"key": import_key(filename, locator, content), "title": title, "content": content,
+                      "locator": locator,
                       "filename": filename, "source_created_at": source_date(date)})
         if len(items) > MAX_ITEMS:
             raise ValueError("More than 500 conversations; split the export")
@@ -56,7 +73,7 @@ def parse_import(filename, text):
         conversations = data if isinstance(data, list) else data.get("conversations", [data]) if isinstance(data, dict) else None
         if not isinstance(conversations, list) or not conversations:
             raise ValueError("Expected a conversation export or an object with messages")
-        for conversation in conversations:
+        for position, conversation in enumerate(conversations):
             if not isinstance(conversation, dict):
                 raise ValueError("Invalid conversation entry")
             if "mapping" in conversation:
@@ -94,26 +111,31 @@ def parse_import(filename, text):
                     continue
                 body = message.get("content", "")
                 if isinstance(body, dict):
-                    body = "\n".join(p for p in body.get("parts", []) if isinstance(p, str))
+                    parts_value = body.get("parts", [])
+                    if not isinstance(parts_value, list):
+                        raise ValueError("Message content parts must be a list")
+                    body = "\n".join(p for p in parts_value if isinstance(p, str))
                 if not isinstance(body, str) or not body.strip():
                     continue
                 label = "用户原文" if role == "user" else "助手回复（AI 生成，非用户事实）"
                 parts.append(label + "：\n" + body)
             if parts:
-                append(conversation.get("title", filename), "\n\n".join(parts), conversation.get("create_time"))
+                cid = conversation.get("id") or conversation.get("conversation_id")
+                locator = f"conversation:{cid}" if isinstance(cid, (str, int)) and cid else f"conversation-index:{position}"
+                append(conversation.get("title", filename), "\n\n".join(parts), conversation.get("create_time"), locator)
     else:
         raise ValueError("Supported files: UTF-8 .md, .txt and conversation .json")
     if not items:
         raise ValueError("No supported text messages found")
-    # Repeated branches/content in a batch are represented once.
+    # Deduplicate the same source location, not different conversations with equal words.
     unique = {item["key"]: item for item in items}
     return list(unique.values())
 
 
 def preview_import(store, items):
     with store.locked():
-        existing = {(r["source"], fingerprint(r["content"])) for r in store._all()}
-    return [{**item, "duplicate": ("local import / " + item["filename"], item["key"]) in existing} for item in items]
+        known, legacy = existing_imports(store)
+    return [{**item, "duplicate": duplicate(item, known, legacy)} for item in items]
 
 
 def commit_import(store, items, keys, sensitivity="restricted"):
@@ -126,22 +148,22 @@ def commit_import(store, items, keys, sensitivity="restricted"):
         raise ValueError("Selection does not belong to this preview")
     imported, skipped = [], 0
     with store.locked():
-        existing = {(r["source"], fingerprint(r["content"])) for r in store._all()}
+        known, legacy = existing_imports(store)
         for item in items:
             if item["key"] not in selected:
                 continue
-            source_key = ("local import / " + item["filename"], item["key"])
-            if source_key in existing:
+            if duplicate(item, known, legacy):
                 skipped += 1
                 continue
             record = store._new(item["title"], item["content"], "knowledge", sensitivity, ["导入资料"],
                                 "local import / " + item["filename"], "imported_source")
-            record.update(import_hash=item["key"], imported_at=now())
+            record.update(import_hash=fingerprint(item["content"]), import_key=item["key"],
+                          import_locator=item.get("locator", "document"), imported_at=now())
             if item["source_created_at"]:
                 record["source_created_at"] = item["source_created_at"]
                 record["created_at"] = item["source_created_at"]
             store._save(record)
             store._audit("import", record["id"])
-            existing.add(source_key)
+            known.add(item["key"])
             imported.append(record["id"])
     return {"imported": len(imported), "skipped": skipped, "record_ids": imported}

@@ -167,3 +167,16 @@ def test_docx_upload_preview_and_material_queue_http(dashboard):
     sources = json.load(request(address, "/api/extraction-sources"))
     assert len(sources) == 1 and sources[0]["state"] == "needs_extraction"
     assert store.search(kind="profile") == []
+
+
+@pytest.mark.parametrize("body", [[], None, "text", 42])
+def test_invalid_request_envelopes_return_error_without_disconnect(dashboard, body):
+    store, address = dashboard
+    for endpoint in ("/api/review", "/api/import-preview", "/api/backup"):
+        # A literal null needs explicit serialization; request(..., None) otherwise GETs.
+        req = Request(address + endpoint, data=json.dumps(body).encode(), headers={
+            "Content-Type":"application/json", "X-Personal-OS":"dashboard", "Origin":address})
+        with pytest.raises(HTTPError) as error:
+            urlopen(req, timeout=5)
+        assert error.value.code == 400 and "JSON object" in json.load(error.value)["error"]
+    assert store.search() == []

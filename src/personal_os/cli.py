@@ -6,6 +6,10 @@ from .store import Store
 
 
 def main():
+    # JSON/MCP output must remain UTF-8 when Windows redirects stdout to pipes.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Local personal data for MCP Agents")
     parser.add_argument("--vault", required=True, help="Explicit path to your private local vault")
     sub = parser.add_subparsers(dest="command", required=True)
