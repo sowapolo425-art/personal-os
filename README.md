@@ -1,6 +1,6 @@
 # Personal OS · 本地个人数据框架
 
-[![Version](https://img.shields.io/badge/Version-0.4.1-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.5.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
 [![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)
@@ -143,7 +143,7 @@ python3 -m venv .venv
 
 先查看草稿，再选择批准或拒绝；也可以在本地面板中对比与审核。批准、删除、恢复没有暴露为 MCP 工具。Agent 若本来具有完整的电脑或终端权限，仍可绕过这个流程；请通过 Agent 自身的权限设置控制这一点。
 
-删除只移除当前记录，历史和草稿仍可能保留其内容。完整清除与备份处理见隐私文档。
+默认删除保留历史；v0.5 可预览影响并永久清理本地关联记录、草稿及历史。过期和证据失效结论退出默认 Agent 读取。外部上下文、导出文件和旧备份需另行清理，详见 [记忆生命周期](docs/MEMORY-LIFECYCLE.md)。
 
 ## 数据结构
 
@@ -168,7 +168,7 @@ my-vault/
 
 本地保存不等于模型在本地运行。Agent 使用云端模型时，工具返回的资料可能进入该供应商的上下文。默认不暴露 `restricted` 记录。Markdown、草稿与历史均为明文，使用者应自行配置磁盘加密、备份和 Agent 权限。
 
-这是单人本地工具，搜索为文字匹配；支持手动选择历史聊天文件并预览导入，尚未实现后台自动采集、向量检索、加密存储、云端同步、永久删除命令或数字分身自主执行。它提供有来源的决策材料，不保证“最正确的抉择”。
+这是单人本地工具，搜索为文字匹配；支持手动选择历史聊天文件并预览导入，尚未实现后台自动采集、向量检索、加密存储、云端同步或数字分身自主执行。它提供有来源的决策材料，不保证“最正确的抉择”。
 
 ## 项目缘起
 

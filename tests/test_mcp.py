@@ -21,7 +21,7 @@ def test_real_stdio_mcp_roundtrip(tmp_path):
                 names = {t.name for t in tools.tools}
                 assert names == {"capture_record", "search_records", "read_record", "propose_record",
                                  "ingest_conversation", "list_conversations", "mark_conversation_processed",
-                                 "propose_insight", "prepare_analysis", "list_extraction_sources", "mark_source_processed"}
+                                 "propose_insight", "prepare_analysis", "list_extraction_sources", "mark_source_processed", "get_memory_changes"}
                 saved = await session.call_tool("capture_record", {"title": "虚构演示", "content": "练习复盘", "kind": "thought"})
                 assert not saved.isError
                 result = await session.call_tool("search_records", {"query": "复盘"})
@@ -66,6 +66,15 @@ def test_real_stdio_mcp_roundtrip(tmp_path):
                 assert str((await session.list_resources()).resources[0].uri) == "personal-os://protocol"
                 assert {p.name for p in (await session.list_prompts()).prompts} == {"personal_review", "extract_history", "extract_materials"}
                 assert "ingest_conversation" in str((await session.get_prompt("extract_history")).messages)
+                feed = await session.call_tool("get_memory_changes", {})
+                assert not feed.isError and "cursor" in str(feed.content)
+                expired = await session.call_tool("capture_record", {"title":"过期预算", "content":"虚构",
+                    "memory":{"scope":"去年预算","valid_until":"2000-01-01T00:00:00Z"}})
+                assert not expired.isError
+                assert "过期预算" not in str((await session.call_tool("search_records", {})).content)
+                Store(vault).delete(record["id"],record["revision"])
+                assert (await session.call_tool("read_record", {"record_id":pending["record"]["id"]})).isError
+                assert "evidence_invalidated" in str((await session.call_tool("get_memory_changes", {})).content)
     asyncio.run(asyncio.wait_for(run(), timeout=40))
 
 

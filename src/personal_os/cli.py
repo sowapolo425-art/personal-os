@@ -25,9 +25,15 @@ def main():
     for name in ("approve", "reject"):
         command = sub.add_parser(name)
         command.add_argument("id")
+        command.add_argument("--resolution", choices=("replace", "keep_both", "scoped"))
+        command.add_argument("--scope")
     delete = sub.add_parser("delete")
     delete.add_argument("id")
     delete.add_argument("--revision", required=True, type=int)
+    delete.add_argument("--mode", choices=("source", "deactivate", "purge"), default="source")
+    delete.add_argument("--impact", help="Fingerprint from deletion-preview; required for purge")
+    deletion_preview = sub.add_parser("deletion-preview")
+    deletion_preview.add_argument("id")
     restore = sub.add_parser("restore")
     restore.add_argument("id")
     restore.add_argument("--revision", required=True, type=int)
@@ -63,9 +69,11 @@ def main():
             if result is None:
                 raise ValueError("Proposal not found")
         elif args.command in ("approve", "reject"):
-            result = store.review(args.id, args.command == "approve")
+            result = store.review(args.id, args.command == "approve", args.resolution, args.scope)
         elif args.command == "delete":
-            result = store.delete(args.id, args.revision)
+            result = store.delete(args.id, args.revision, args.mode, args.impact)
+        elif args.command == "deletion-preview":
+            result = store.deletion_preview(args.id, True)
         elif args.command == "analysis-pack":
             from pathlib import Path
             from .conversations import analysis_pack

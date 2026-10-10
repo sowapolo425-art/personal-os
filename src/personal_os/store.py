@@ -158,6 +158,18 @@ class Store:
         data = self.encode(record)
         self._atomic(self.meta / "history" / record["id"] / f'{record["revision"]}.md', data)
         self._atomic(self._path(record), data)
+        from .governance import change
+        change(self, record["id"], "updated", record["sensitivity"])
+        rows = list(self._all())
+        dependent = {record["id"]}
+        while True:
+            expanded = dependent | {r["id"] for r in rows if set(r.get("source_ids", [])) & dependent}
+            if dependent == expanded:
+                break
+            dependent = expanded
+        for r in rows:
+            if r["id"] in dependent and r["id"] != record["id"]:
+                change(self, r["id"], "evidence_invalidated", r["sensitivity"])
 
     def _new(self, title, content, kind, sensitivity, tags, source, status):
         checked_text(title, "title", 300)
@@ -171,19 +183,25 @@ class Store:
                     sensitivity=sensitivity, tags=tags, source=source, status=status,
                     created_at=now(), updated_at=now(), revision=1)
 
-    def capture(self, title, content, kind="record", sensitivity="private", tags=None, source="user conversation"):
+    def capture(self, title, content, kind="record", sensitivity="private", tags=None, source="user conversation", memory=None):
         if kind == "profile":
             raise ValueError("Profiles must be proposed and reviewed locally")
         record = self._new(title, content, kind, sensitivity, [] if tags is None else tags, source, "self_report")
+        from .governance import metadata
+        record["memory"] = metadata(memory)
         with self.locked():
             self._save(record)
             self._audit("capture", record["id"])
         return record
 
-    def get(self, record_id, allow_restricted=False):
+    def get(self, record_id, allow_restricted=False, include_inactive=False):
         with self.locked():
             record = self._get(record_id)
             self._visible(record, allow_restricted)
+            from .governance import active, effective
+            if not include_inactive:
+                active(self, record)
+            record["effective_state"] = effective(self, record)
             self._audit("read", record_id)
             return record
 
@@ -195,19 +213,23 @@ class Store:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("Limit must be between 1 and 100")
         with self.locked():
-            records = [r for r in self._all() if (allow_restricted or r["sensitivity"] != "restricted")
+            from .governance import effective
+            rows = {r["id"]: r for r in self._all()}
+            records = [r for r in rows.values() if effective(self, r, rows) == "active" and (allow_restricted or r["sensitivity"] != "restricted")
                        and (kind is None or r["kind"] == kind)
                        and query.casefold() in (r["title"] + " " + r["content"] + " " + " ".join(r["tags"])).casefold()]
             records.sort(key=lambda r: r["updated_at"], reverse=True)
             self._audit("search", None)
             return [{k: r[k] for k in ("id", "title", "kind", "status", "revision", "updated_at", "source")} |
-                    {"excerpt": r["content"][:240]} for r in records[:limit]]
+                    {"excerpt": r["content"][:240], "memory": r.get("memory", {})} for r in records[:limit]]
 
     def propose(self, title, content, reason, record_id=None, expected_revision=None,
                 kind="profile", sensitivity="private", source_ids=None, allow_restricted=False,
-                claim_type=None):
+                claim_type=None, memory=None):
         checked_text(reason, "reason", 2000)
         proposed = self._new(title, content, kind, sensitivity, [], "AI proposal", "confirmed")
+        from .governance import metadata, active
+        proposed["memory"] = metadata(memory)
         sources = [] if source_ids is None else source_ids
         if not isinstance(sources, list) or len(sources) > 50:
             raise ValueError("At most 50 source IDs are allowed")
@@ -225,6 +247,12 @@ class Store:
                     raise ValueError("Revision conflict; read the latest record first")
                 if current["kind"] != kind:
                     raise ValueError("Cannot change record kind")
+                if memory is None:
+                    proposed["memory"] = current.get("memory", {})
+                if kind == "decision":
+                    for key in ("rationale", "conditions", "expected_outcome"):
+                        if key in current.get("memory", {}) and proposed["memory"].get(key) != current["memory"][key]:
+                            raise ValueError("Keep original decision rationale, conditions and expectation")
                 if claim_type is None and "claim_type" in current:
                     proposed["claim_type"] = current["claim_type"]
                 sources = list(dict.fromkeys(current.get("source_ids", []) + sources))
@@ -238,9 +266,12 @@ class Store:
                 raise ValueError("New records have no expected revision")
             evidence_rows = []
             sources = list(dict.fromkeys(sources))
+            if record_id and record_id in sources:
+                raise ValueError("A record cannot be its own evidence")
             for sid in sources:
                 evidence = self._get(sid)
                 self._visible(evidence, allow_restricted)
+                active(self, evidence)
                 evidence_rows.append(evidence)
                 if evidence["sensitivity"] == "restricted":
                     proposed["sensitivity"] = "restricted"
@@ -265,14 +296,28 @@ class Store:
             return [json.loads(self._safe(p).read_text(encoding="utf-8")) for p in
                     sorted(self._safe(self.meta / "proposals").glob("*.json"))]
 
-    def review(self, proposal_id, approve):
+    def review(self, proposal_id, approve, resolution=None, scope=None):
         path = self.meta / "proposals" / (checked_id(proposal_id) + ".json")
         with self.locked():
             proposal = json.loads(self._safe(path).read_text(encoding="utf-8"))
+            if proposal["state"] == "invalidated":
+                raise ValueError("Evidence invalidated; submit a new proposal")
             if proposal["state"] != "pending":
                 raise ValueError("Proposal already reviewed")
             if approve:
                 record = proposal["record"]
+                if record.get("claim_type") == "conflict":
+                    if resolution not in ("replace", "keep_both", "scoped"):
+                        raise ValueError("Choose an explicit conflict resolution")
+                    if resolution == "scoped":
+                        record["memory"] = {**record.get("memory", {}), "scope": checked_text(scope, "scope", 5000)}
+                    if resolution in ("keep_both", "scoped") and proposal["expected_revision"] is not None:
+                        current = self._get(record["id"])
+                        if current["revision"] != proposal["expected_revision"]:
+                            raise ValueError("Revision conflict: proposal is stale")
+                        record.update(id=uuid.uuid4().hex, revision=1, created_at=now())
+                        proposal["expected_revision"] = None
+                    record["resolution"] = resolution
                 for sid in record.get("source_ids", []):
                     try:
                         evidence = self._get(sid)
@@ -283,6 +328,8 @@ class Store:
                         raise ValueError("Evidence changed; submit a new proposal using the latest sources")
                     if evidence["sensitivity"] == "restricted":
                         record["sensitivity"] = "restricted"
+                    from .governance import active
+                    active(self, evidence)
                 if proposal["expected_revision"] is not None:
                     current = self._get(record["id"])
                     if current["revision"] != proposal["expected_revision"]:
@@ -303,24 +350,48 @@ class Store:
             self._audit(proposal["state"], proposal_id)
             return {"id": proposal_id, "state": proposal["state"]}
 
-    def delete(self, record_id, expected_revision):
+    def deletion_preview(self, record_id, allow_restricted=False):
+        from .governance import preview
+        return preview(self, record_id, allow_restricted)
+
+    def delete(self, record_id, expected_revision, mode="source", expected_impact=None, allow_restricted=True):
+        from .governance import delete
+        return delete(self, record_id, expected_revision, mode, expected_impact, allow_restricted)
+
+    def update_memory(self, record_id, expected_revision, memory, allow_restricted=True):
+        from .governance import metadata
         with self.locked():
             record = self._get(record_id)
-            if record["revision"] != expected_revision:
+            self._visible(record, allow_restricted)
+            if type(expected_revision) is not int or expected_revision != record["revision"]:
                 raise ValueError("Revision conflict")
-            self._safe(self._path(record)).unlink()
-            self._audit("delete", record_id)
-            return {"id": record_id, "deleted": True, "history_retained": True}
+            value = metadata(memory)
+            if record["kind"] == "decision":
+                for key in ("rationale", "conditions", "expected_outcome"):
+                    if key in record.get("memory", {}) and value.get(key) != record["memory"][key]:
+                        raise ValueError("Keep original decision rationale, conditions and expectation")
+                if value.get("actual_outcome") != record.get("memory", {}).get("actual_outcome"):
+                    value["reviewed_at"] = now()
+            record["memory"] = value
+            record["revision"] += 1
+            record["updated_at"] = now()
+            self._save(record)
+            self._audit("memory_review", record_id)
+            return record
 
     def restore(self, record_id, revision):
         checked_id(record_id)
         if type(revision) is not int or revision < 1:
             raise ValueError("Invalid revision")
         with self.locked():
+            revoked = self._safe(self.meta / "revocations" / (record_id + ".json"))
+            if revoked.exists() and json.loads(revoked.read_text(encoding="utf-8"))["mode"] == "purge":
+                raise ValueError("Permanently deleted records cannot be restored")
             history = self._safe(self.meta / "history" / record_id)
             record = self.decode(self._safe(history / f"{revision}.md").read_text(encoding="utf-8"))
             record["revision"] = max(int(p.stem) for p in history.glob("*.md")) + 1
             record["updated_at"] = now()
+            revoked.unlink(missing_ok=True)
             self._save(record)
             self._audit("restore", record_id)
             return record

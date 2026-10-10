@@ -1,5 +1,7 @@
 # 数据规范 v0.1
 
+v0.5 可选 memory 对象包括 scope、valid_from/valid_until（带时区）、state，以及决策的 rationale/conditions/expected_outcome/actual_outcome/reviewed_at。冲突裁决记录 resolution。effective_state 是动态读取/面板字段，不作为历史判断的权威状态。新增撤回标记与无正文变更通知，详见 [记忆生命周期](MEMORY-LIFECYCLE.md)。旧记录缺省无限期、启用，但引用的证据仍须有效。
+
 当前记录的权威数据为 UTF-8 Markdown。头部用 `---` 分隔，中间采用 JSON 对象；JSON 是 YAML 的合法子集，便于一般 Markdown 工具阅读。不依赖数据库或外部检索服务。
 
 | 字段 | 含义 |

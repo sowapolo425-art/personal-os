@@ -70,11 +70,12 @@ async function loadMaterials(){
 }
 function invalidateAnalysis(){analysisRequest++;analysisText=null;$('analysis-result').hidden=true;$('analysis-preview').textContent='';}
 function renderAnalysisSelection(data){
-  const visible=new Set(data.records.map(r=>r.id));
+  const eligible=data.records.filter(r=>!r.effective_state||r.effective_state==='active');
+  const visible=new Set(eligible.map(r=>r.id));
   let removed=false;for(const id of analysisSelected)if(!visible.has(id)){analysisSelected.delete(id);removed=true;}if(removed)invalidateAnalysis();
   const target=$('analysis-selection');target.replaceChildren();
   const query=$('analysis-filter').value.toLocaleLowerCase();
-  const rows=data.records.filter(r=>(r.title+' '+r.excerpt).toLocaleLowerCase().includes(query));
+  const rows=eligible.filter(r=>(r.title+' '+r.excerpt).toLocaleLowerCase().includes(query));
   rows.forEach(r=>{
     const label=node('label','','analysis-item'),check=node('input');check.type='checkbox';check.checked=analysisSelected.has(r.id);
     check.onchange=()=>{if(check.checked)analysisSelected.add(r.id);else analysisSelected.delete(r.id);invalidateAnalysis();renderAnalysisSelection(data);};

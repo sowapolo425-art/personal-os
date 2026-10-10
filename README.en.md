@@ -1,6 +1,6 @@
 # Personal OS
 
-[![Version](https://img.shields.io/badge/Version-0.4.1-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.5.0-blue)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
 [![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)
@@ -74,7 +74,7 @@ This is a workflow boundary, not protection against an Agent with unrestricted s
 Managed records are UTF-8 Markdown with JSON-compatible YAML frontmatter. History lives in
 `.personal-os/history`; proposals live in `.personal-os/proposals`. Private records are visible
 to the connected Agent; restricted records are hidden unless the human explicitly enables
-`serve --allow-restricted`. Storage is plaintext. Deleting current records retains history.
+`serve --allow-restricted`. Storage is plaintext. Default deletion retains history; v0.5 also supports a fingerprint-confirmed local cascade purge. Lifecycle checks exclude expired and invalid-evidence memories from Agent access. get_memory_changes provides opt-in polling for external cache invalidation, not guaranteed erasure of external contexts. See [memory lifecycle](docs/MEMORY-LIFECYCLE.md).
 
 Four suggested interaction modes: capture, deep discussion with authorized capture,
 discussion without tool writes, and evidence-based review. These are Agent instructions,

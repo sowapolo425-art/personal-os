@@ -20,7 +20,7 @@ command = 'D:\tools\personal-os\.venv\Scripts\python.exe'
 args = ['-m', 'personal_os.cli', '--vault', 'D:\PersonalData\my-vault', 'serve']
 ```
 
-请用 Codex 的 MCP 列表检查连接，确认出现十一个工具（四个原有工具与七个提取/分析工具）。
+请用 Codex 的 MCP 列表检查连接，确认出现十二个工具（原有十一个，加 get_memory_changes 变更通知）。
 来源：[OpenAI 官方 MCP 文档](https://developers.openai.com/codex/mcp/)，2026-10-10 已读取。
 本文档示例已按官方格式编写，并核对了本机 `codex mcp add --help`，尚未在实际 Codex 客户端注册或调用。
 

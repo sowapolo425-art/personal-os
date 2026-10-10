@@ -6,6 +6,7 @@ import time
 import uuid
 import zipfile
 import webbrowser
+import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -22,6 +23,9 @@ def snapshot(store, restricted=False, query="", kind=""):
         raise ValueError("Query too long")
     with store.locked():
         records = [r for r in store._all() if restricted or r["sensitivity"] != "restricted"]
+        from .governance import effective
+        all_rows = {r["id"]: r for r in store._all()}
+        records = [{**r, "effective_state": effective(store, r, all_rows)} for r in records]
         proposals = []
         for path in sorted(store._safe(store.meta / "proposals").glob("*.json")):
             p = json.loads(store._safe(path).read_text(encoding="utf-8"))
@@ -53,7 +57,8 @@ def snapshot(store, restricted=False, query="", kind=""):
             "pending": len(proposals), "kinds": dict(Counter(r["kind"] for r in records)),
             "created_dates": [r.get("imported_at", r["created_at"]) for r in records],
             "records": [{k: r[k] for k in fields} | {"excerpt": r["content"][:180],
-                        "claim_type": r.get("claim_type"), "conversation": r.get("conversation")} for r in matching[:200]],
+                        "claim_type": r.get("claim_type"), "conversation": r.get("conversation"),
+                        "memory": r.get("memory", {}), "effective_state": r["effective_state"]} for r in matching[:200]],
             "matching": len(matching), "proposals": proposals, "restricted": restricted,
             "graph": {"nodes": [{k: r[k] for k in ("id", "title", "kind")} for r in graph_records],
                       "edges": [e for e in edges if e["source"] in graph_ids and e["target"] in graph_ids],
@@ -77,6 +82,8 @@ def make_server(vault, port=8765):
     if not 0 <= port <= 65535:
         raise ValueError("Invalid port")
     previews = {}
+    preview_lock = threading.RLock()
+    preview_epoch = 0
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -112,14 +119,16 @@ def make_server(vault, port=8765):
                 url = urlsplit(self.path)
                 params = parse_qs(url.query)
                 restricted = params.get("restricted", ["0"])[0] == "1"
-                assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/features.js": ("features.js", "text/javascript"), "/memory.js": ("memory.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
+                assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/governance.js": ("governance.js", "text/javascript"), "/features.js": ("features.js", "text/javascript"), "/memory.js": ("memory.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
                 if url.path in assets:
                     name, mime = assets[url.path]
                     self.send(200, files("personal_os").joinpath("static", name).read_bytes(), mime + "; charset=utf-8")
                 elif url.path == "/api/snapshot":
                     self.send(200, snapshot(store, restricted, params.get("q", [""])[0], params.get("kind", [""])[0]))
                 elif url.path == "/api/record":
-                    self.send(200, store.get(params.get("id", [""])[0], restricted))
+                    self.send(200, store.get(params.get("id", [""])[0], restricted, include_inactive=True))
+                elif url.path == "/api/deletion-preview":
+                    self.send(200, store.deletion_preview(params.get("id", [""])[0], restricted))
                 elif url.path == "/api/history":
                     self.send(200, history(store, params.get("id", [""])[0], restricted))
                 elif url.path == "/api/conversations":
@@ -135,6 +144,7 @@ def make_server(vault, port=8765):
                 self.send(400, {"error": str(exc)})
 
         def do_POST(self):
+            nonlocal preview_epoch
             origin = self.headers.get("Origin")
             if (not self.valid_host() or origin != "http://" + self.headers.get("Host", "")
                 or self.headers.get("X-Personal-OS") != "dashboard"
@@ -152,32 +162,47 @@ def make_server(vault, port=8765):
                 if self.path == "/api/review":
                     if data.get("action") not in ("approve", "reject"):
                         raise ValueError("Invalid review action")
-                    result = store.review(data["id"], data["action"] == "approve")
+                    result = store.review(data["id"], data["action"] == "approve", data.get("resolution"), data.get("scope"))
+                elif self.path == "/api/memory":
+                    result = store.update_memory(data["id"], data["revision"], data["memory"], data.get("restricted") is True)
+                elif self.path == "/api/delete":
+                    if not isinstance(data.get("impact"), str):
+                        raise ValueError("Preview deletion first")
+                    with preview_lock:
+                        result = store.delete(data["id"], data["revision"], data["mode"], data["impact"], data.get("restricted") is True)
+                        previews.clear()
+                        preview_epoch += 1
                 elif self.path == "/api/capture":
                     result = store.capture(data["title"], data["content"], data.get("kind", "thought"),
-                                           data.get("sensitivity", "private"), source="local dashboard / user input")
+                                           data.get("sensitivity", "private"), source="local dashboard / user input", memory=data.get("memory"))
                 elif self.path == "/api/analysis-pack":
                     result = analysis_pack(store, data["record_ids"], data["purpose"], data.get("restricted") is True)
                 elif self.path == "/api/import-preview":
+                    with preview_lock:
+                        epoch = preview_epoch
                     if "data" in data:
                         from .documents import parse_document
                         items = parse_document(data["filename"], base64.b64decode(data["data"], validate=True))
                     else:
                         items = parse_import(data["filename"], data["text"])
                     # Preview stays only in process memory, expires after 30 minutes.
-                    expired = [key for key, value in previews.items() if time.monotonic() - value[0] > 1800]
-                    for key in expired:
-                        previews.pop(key, None)
-                    if len(previews) >= 4:
-                        previews.pop(next(iter(previews)))
-                    token = uuid.uuid4().hex
-                    previews[token] = (time.monotonic(), items)
+                    with preview_lock:
+                        if epoch != preview_epoch:
+                            raise ValueError("Deletion invalidated this preview; choose the file again")
+                        expired = [key for key, value in previews.items() if time.monotonic() - value[0] > 1800]
+                        for key in expired:
+                            previews.pop(key, None)
+                        if len(previews) >= 4:
+                            previews.pop(next(iter(previews)))
+                        token = uuid.uuid4().hex
+                        previews[token] = (time.monotonic(), items)
                     result = {"preview_id": token, "items": preview_import(store, items)}
                 elif self.path == "/api/import-commit":
-                    preview = previews.get(data["preview_id"])
-                    if not preview or time.monotonic() - preview[0] > 1800:
-                        raise ValueError("Preview expired; choose the file again")
-                    result = commit_import(store, preview[1], data["keys"], data.get("sensitivity", "restricted"))
+                    with preview_lock:
+                        preview = previews.get(data["preview_id"])
+                        if not preview or time.monotonic() - preview[0] > 1800:
+                            raise ValueError("Preview expired; choose the file again")
+                        result = commit_import(store, preview[1], data["keys"], data.get("sensitivity", "restricted"))
                 elif self.path == "/api/backup":
                     self.send(200, create_backup(store), "application/zip", "personal-os-backup.zip")
                     return

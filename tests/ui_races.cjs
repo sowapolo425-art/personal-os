@@ -27,7 +27,7 @@ const context=vm.createContext({
   fetch:async()=>({ok:true,json:async()=>empty}),console,URL,URLSearchParams,TextDecoder,TextEncoder,
   setTimeout,clearTimeout,setInterval:()=>0,navigator:{clipboard:{writeText:async()=>{}}},confirm:()=>true,
 });
-for(const file of ['app.js','features.js','memory.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/personal_os/static',file),'utf8'),context,{filename:file});
+for(const file of ['app.js','governance.js','features.js','memory.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../src/personal_os/static',file),'utf8'),context,{filename:file});
 async function main(){
   await new Promise(setImmediate);
   const result=await vm.runInContext(`(async()=>{
@@ -59,7 +59,11 @@ async function main(){
     analysisText='old preview';$('analysis-result').hidden=false;
     state.view='analysis';renderAnalysisSelection({...empty,records:[b],matching:1});
     const invalidatedPreview=analysisText===null&&$('analysis-result').hidden;
-    return {privacy,latestRecord,latestImport,stableSelection,invalidatedPreview};
+    analysisSelected.add('A');renderAnalysisSelection({...empty,records:[{...a,effective_state:'expired'}]});
+    const expiredExcluded=!analysisSelected.has('A');
+    analysisSelected.add('B');analysisText='cached';clearLocalPreviews();
+    const deletionClearsPreviews=importPreview===null&&analysisSelected.size===0&&analysisText===null;
+    return {privacy,latestRecord,latestImport,stableSelection,invalidatedPreview,expiredExcluded,deletionClearsPreviews};
   })()`,context);
   for(const [name,passed] of Object.entries(result))assert.equal(passed,true,name);
   console.log(JSON.stringify(result));

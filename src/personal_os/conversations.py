@@ -51,8 +51,11 @@ def _groups(store, restricted):
         origin = record.get("conversation")
         if origin:
             groups.setdefault(origin["key"], []).append(record)
+    from .governance import effective
+    all_rows = {r["id"]: r for r in store._all()}
     return {key: rows for key, rows in groups.items()
-            if restricted or all(r["sensitivity"] != "restricted" for r in rows)}
+            if (restricted or all(r["sensitivity"] != "restricted" for r in rows))
+            and all(effective(store, r, all_rows) == "active" for r in rows)}
 
 
 def _summary(store, key, rows):
@@ -117,6 +120,8 @@ def ingest_conversation(store, agent, conversation_id, title, messages, sensitiv
         existing = [r for r in store._all() if r.get("conversation", {}).get("key") == key]
         for record in existing:
             store._visible(record, allow_restricted)
+            from .governance import active
+            active(store, record)
         # A later batch cannot downgrade the privacy of an existing conversation.
         if any(r["sensitivity"] == "restricted" for r in existing):
             for record in prepared:
@@ -171,6 +176,8 @@ def analysis_pack(store, record_ids, purpose, allow_restricted=False):
         for rid in record_ids:
             record = store._get(rid)
             store._visible(record, allow_restricted)
+            from .governance import active
+            active(store, record)
             records.append(record)
         if sum(len(r["content"]) for r in records) > 1_000_000:
             raise ValueError("Analysis pack exceeds 1 million characters; reduce selection")
@@ -196,7 +203,9 @@ def _source_summary(store, record):
 
 def list_sources(store, allow_restricted=False):
     with store.locked():
-        records = [r for r in store._all() if r["status"] in ("self_report", "imported_source")
+        from .governance import effective
+        all_rows = {r["id"]: r for r in store._all()}
+        records = [r for r in all_rows.values() if effective(store, r, all_rows) == "active" and r["status"] in ("self_report", "imported_source")
                    and (allow_restricted or r["sensitivity"] != "restricted")]
         return sorted([_source_summary(store, r) for r in records], key=lambda r: r["updated_at"], reverse=True)
 
@@ -205,6 +214,8 @@ def mark_source_processed(store, record_id, fingerprint, allow_restricted=False)
     with store.locked():
         record = store._get(record_id)
         store._visible(record, allow_restricted)
+        from .governance import active
+        active(store, record)
         if record["status"] not in ("self_report", "imported_source"):
             raise ValueError("Only original expressions or imported materials can be marked")
         if _source_summary(store, record)["fingerprint"] != fingerprint:
