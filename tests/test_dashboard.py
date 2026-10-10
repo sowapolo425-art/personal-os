@@ -1,4 +1,5 @@
 import json
+import base64
 import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -6,6 +7,7 @@ from urllib.request import Request, urlopen
 import pytest
 from personal_os.dashboard import make_server
 from personal_os.store import Store
+from personal_os.importer import parse_import, commit_import
 
 
 @pytest.fixture
@@ -91,3 +93,36 @@ def test_host_rebinding_and_path_traversal_blocked(dashboard):
     for path in ("/../../pyproject.toml", "/api/record?id=../outside"):
         with pytest.raises(HTTPError):
             request(address, path)
+
+
+def test_preview_commit_backup_and_restore_http(dashboard):
+    store, address = dashboard
+    preview = json.load(request(address, "/api/import-preview", {"filename": "fictional.md", "text": "# 虚构导入\n历史资料"}))
+    assert store.search(allow_restricted=True) == []
+    body = {"preview_id": preview["preview_id"], "keys": [preview["items"][0]["key"]], "sensitivity": "private"}
+    assert json.load(request(address, "/api/import-commit", body))["imported"] == 1
+    assert json.load(request(address, "/api/import-commit", body))["skipped"] == 1
+    with request(address, "/api/backup", {}) as response:
+        assert response.headers["Content-Type"] == "application/zip"
+        archive = response.read()
+    restored = json.load(request(address, "/api/restore-backup", {"data": base64.b64encode(archive).decode()}))
+    assert Store(restored["restored_vault"]).search()[0]["excerpt"] == "# 虚构导入\n历史资料"
+    assert len(store.search()) == 1
+
+
+def test_graph_hides_restricted_nodes_and_configuration_uses_current_vault(dashboard):
+    store, address = dashboard
+    original = store.capture("依据", "用户表达")
+    p = store.propose("理解", "确认结论", "理由", source_ids=[original["id"]])
+    store.review(p["proposal_id"], True)
+    secret = store.capture("受限", "秘密", sensitivity="restricted")
+    items = parse_import("old.json", json.dumps({"title": "旧对话", "create_time": 1704067200, "messages": [{"role": "user", "content": "旧原文"}]}))
+    imported = commit_import(store, items, [items[0]["key"]], "private")
+    old = store.get(imported["record_ids"][0])
+    snapshot = json.load(request(address, "/api/snapshot"))
+    assert len(snapshot["graph"]["edges"]) == 1
+    assert secret["id"] not in {n["id"] for n in snapshot["graph"]["nodes"]}
+    assert old["created_at"].startswith("2024")
+    assert old["imported_at"] in snapshot["created_dates"]
+    config = json.load(request(address, "/api/config"))["mcpServers"]["personal-os"]
+    assert str(store.root) in config["args"] and config["args"][-1] == "serve"

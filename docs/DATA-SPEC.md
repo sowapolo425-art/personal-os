@@ -10,9 +10,11 @@
 | revision | 从 1 开始的版本号 |
 | source | 来源说明，不声称已验证来源真实性 |
 | source_ids | 草稿结论关联的本地证据 ID |
-| status | self_report：自我报告；confirmed：本地已审核 |
+| status | self_report：自我报告；confirmed：本地已审核；imported_source：导入原始资料，不代表确认其中的说法 |
 | sensitivity | private：可被当前 Agent 读取；restricted：默认隐藏 |
 | tags | 用户或 Agent 提供的标签 |
+
+导入记录另有 import_hash 和 imported_at；带可靠时区/时间戳的对话保留 source_created_at，并将原始时间用于时间线。七天积累图使用导入时间，体现实际新增到资料库的时间。未知原始日期使用本次保存时间，不猜测日期。
 
 草稿的 record 字段是候选内容，其 status 只有在草稿 state=approved 并写入正式目录后才有效。待确认内容只存在 `.personal-os/proposals`，不出现在正式检索结果中。Agent 不能通过 MCP 批准草稿。
 

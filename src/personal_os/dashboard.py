@@ -1,5 +1,10 @@
 """Local human dashboard. Bound to loopback, no external assets or model calls."""
 import json
+import base64
+import sys
+import time
+import uuid
+import zipfile
 import webbrowser
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -7,6 +12,8 @@ from importlib.resources import files
 from urllib.parse import parse_qs, urlsplit
 
 from .store import Store, checked_id
+from .importer import parse_import, preview_import, commit_import
+from .backup import create_backup, restore_backup
 
 
 def snapshot(store, restricted=False, query="", kind=""):
@@ -33,13 +40,22 @@ def snapshot(store, restricted=False, query="", kind=""):
         matching = [r for r in records if (not kind or r["kind"] == kind)
                     and query.casefold() in (r["title"] + " " + r["content"] + " " + " ".join(r["tags"])).casefold()]
         matching.sort(key=lambda r: r["updated_at"], reverse=True)
+        visible_ids = {r["id"] for r in records}
+        edges = [{"source": source, "target": r["id"]} for r in records
+                 for source in r.get("source_ids", []) if source in visible_ids and source != r["id"]]
+        degrees = Counter(e[side] for e in edges for side in ("source", "target"))
+        graph_records = sorted(records, key=lambda r: (degrees[r["id"]], r["updated_at"]), reverse=True)[:60]
+        graph_ids = {r["id"] for r in graph_records}
         fields = ("id", "title", "kind", "status", "revision", "created_at", "updated_at", "tags", "sensitivity")
         return {
             "total": len(records), "confirmed": sum(r["status"] == "confirmed" for r in records),
             "pending": len(proposals), "kinds": dict(Counter(r["kind"] for r in records)),
-            "created_dates": [r["created_at"] for r in records],
+            "created_dates": [r.get("imported_at", r["created_at"]) for r in records],
             "records": [{k: r[k] for k in fields} | {"excerpt": r["content"][:180]} for r in matching[:200]],
             "matching": len(matching), "proposals": proposals, "restricted": restricted,
+            "graph": {"nodes": [{k: r[k] for k in ("id", "title", "kind")} for r in graph_records],
+                      "edges": [e for e in edges if e["source"] in graph_ids and e["target"] in graph_ids],
+                      "total_nodes": len(records)},
         }
 
 
@@ -58,18 +74,21 @@ def make_server(vault, port=8765):
         raise ValueError("Run init first")
     if not 0 <= port <= 65535:
         raise ValueError("Invalid port")
+    previews = {}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             # Do not log personal record IDs, query terms or contents.
             pass
 
-        def send(self, status, body, mime="application/json; charset=utf-8"):
+        def send(self, status, body, mime="application/json; charset=utf-8", filename=None):
             if not isinstance(body, bytes):
                 body = json.dumps(body, ensure_ascii=False).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(body)))
+            if filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
@@ -91,7 +110,7 @@ def make_server(vault, port=8765):
                 url = urlsplit(self.path)
                 params = parse_qs(url.query)
                 restricted = params.get("restricted", ["0"])[0] == "1"
-                assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
+                assets = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"), "/features.js": ("features.js", "text/javascript"), "/style.css": ("style.css", "text/css")}
                 if url.path in assets:
                     name, mime = assets[url.path]
                     self.send(200, files("personal_os").joinpath("static", name).read_bytes(), mime + "; charset=utf-8")
@@ -101,6 +120,9 @@ def make_server(vault, port=8765):
                     self.send(200, store.get(params.get("id", [""])[0], restricted))
                 elif url.path == "/api/history":
                     self.send(200, history(store, params.get("id", [""])[0], restricted))
+                elif url.path == "/api/config":
+                    args = ["-m", "personal_os.cli", "--vault", str(store.root), "serve"]
+                    self.send(200, {"mcpServers": {"personal-os": {"command": sys.executable, "args": args}}})
                 else:
                     self.send(404, {"error": "Not found"})
             except (ValueError, KeyError, OSError) as exc:
@@ -115,7 +137,8 @@ def make_server(vault, port=8765):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 1 <= length <= 500_000:
+                maximum = 48 * 1024 * 1024 if self.path == "/api/restore-backup" else 16 * 1024 * 1024 if self.path == "/api/import-preview" else 500_000
+                if not 1 <= length <= maximum:
                     raise ValueError("Invalid request size")
                 data = json.loads(self.rfile.read(length))
                 if self.path == "/api/review":
@@ -125,11 +148,35 @@ def make_server(vault, port=8765):
                 elif self.path == "/api/capture":
                     result = store.capture(data["title"], data["content"], data.get("kind", "thought"),
                                            data.get("sensitivity", "private"), source="local dashboard / user input")
+                elif self.path == "/api/import-preview":
+                    items = parse_import(data["filename"], data["text"])
+                    # Preview stays only in process memory, expires after 30 minutes.
+                    expired = [key for key, value in previews.items() if time.monotonic() - value[0] > 1800]
+                    for key in expired:
+                        previews.pop(key, None)
+                    if len(previews) >= 4:
+                        previews.pop(next(iter(previews)))
+                    token = uuid.uuid4().hex
+                    previews[token] = (time.monotonic(), items)
+                    result = {"preview_id": token, "items": preview_import(store, items)}
+                elif self.path == "/api/import-commit":
+                    preview = previews.get(data["preview_id"])
+                    if not preview or time.monotonic() - preview[0] > 1800:
+                        raise ValueError("Preview expired; choose the file again")
+                    result = commit_import(store, preview[1], data["keys"], data.get("sensitivity", "restricted"))
+                elif self.path == "/api/backup":
+                    self.send(200, create_backup(store), "application/zip", "personal-os-backup.zip")
+                    return
+                elif self.path == "/api/restore-backup":
+                    encoded = data["data"]
+                    if not isinstance(encoded, str):
+                        raise ValueError("Invalid backup data")
+                    result = restore_backup(store, base64.b64decode(encoded, validate=True))
                 else:
                     self.send(404, {"error": "Not found"})
                     return
                 self.send(200, result)
-            except (ValueError, KeyError, OSError, TypeError) as exc:
+            except (ValueError, KeyError, OSError, TypeError, zipfile.BadZipFile, RuntimeError) as exc:
                 self.send(400, {"error": str(exc)})
 
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)

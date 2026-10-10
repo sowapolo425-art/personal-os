@@ -10,3 +10,4 @@ vault/
 *.db
 *.sqlite*
 .personal-os/
+.local/

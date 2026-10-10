@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import zipfile
 from .store import Store
 
 
@@ -26,6 +27,10 @@ def main():
     restore = sub.add_parser("restore")
     restore.add_argument("id")
     restore.add_argument("--revision", required=True, type=int)
+    backup = sub.add_parser("backup", help="Create a checked ZIP backup")
+    backup.add_argument("--output", required=True)
+    restore_zip = sub.add_parser("restore-backup", help="Restore to a new adjacent vault")
+    restore_zip.add_argument("archive")
     args = parser.parse_args()
     store = Store(args.vault)
     try:
@@ -52,10 +57,28 @@ def main():
             result = store.review(args.id, args.command == "approve")
         elif args.command == "delete":
             result = store.delete(args.id, args.revision)
+        elif args.command == "backup":
+            from pathlib import Path
+            from .backup import create_backup
+            destination = Path(args.output).expanduser().resolve()
+            if destination.is_relative_to(store.root):
+                raise ValueError("Save backups outside the active vault")
+            data = create_backup(store)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("xb") as stream:
+                stream.write(data)
+            result = {"backup": str(destination), "bytes": len(data), "encrypted": False}
+        elif args.command == "restore-backup":
+            from pathlib import Path
+            from .backup import restore_backup, MAX_ARCHIVE
+            archive = Path(args.archive)
+            if archive.stat().st_size > MAX_ARCHIVE:
+                raise ValueError("Backup exceeds 32 MB")
+            result = restore_backup(store, archive.read_bytes())
         else:
             result = store.restore(args.id, args.revision)
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    except (ValueError, OSError, KeyError) as exc:
+    except (ValueError, OSError, KeyError, zipfile.BadZipFile, RuntimeError) as exc:
         print(f"Personal OS: {exc}", file=sys.stderr)
         raise SystemExit(1)
 

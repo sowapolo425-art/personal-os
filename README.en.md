@@ -13,6 +13,20 @@ The panel binds only to `127.0.0.1`, requires no frontend build, loads no extern
 and refreshes every 30 seconds. Use `--no-browser` or `--port 8766` as needed.
 See [dashboard guide](docs/DASHBOARD.md). Screenshots use entirely fictional data.
 
+## Easier setup and portability (v0.3)
+
+On Windows, unzip the repository and double-click `launch.cmd`. Python 3.11+ is required;
+the first run installs dependencies and asks for a private vault folder outside the source tree.
+Later launches remember the folder and can run offline. On macOS/Linux, use
+`python3 scripts/launch.py`; `--choose` selects another vault and `--vault PATH` supports headless setups.
+
+The panel imports UTF-8 MD/TXT and ChatGPT active-branch or messages JSON exports after preview,
+deduplicates original text, and labels transcripts as imported sources rather than personal facts.
+Imports default to restricted. Backups include all private records, proposals and history in a
+plaintext ZIP with integrity hashes. Restore creates a separate adjacent vault, never overwriting
+the active one. The source graph shows explicit evidence references only. The guide can generate
+the running environment's MCP JSON or Codex TOML. See [portability limits](docs/PORTABILITY.md).
+
 ## Quick start
 
 Requires Python 3.11+.
