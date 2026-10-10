@@ -1,5 +1,12 @@
 # Personal OS
 
+[![Version](https://img.shields.io/badge/Version-0.3.0-blue)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
+[![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)
+[![License](https://img.shields.io/badge/License-MIT-orange)](LICENSE)
+[![Tests](https://github.com/sowapolo425-art/personal-os/actions/workflows/tests.yml/badge.svg)](https://github.com/sowapolo425-art/personal-os/actions/workflows/tests.yml)
+
 Local Markdown personal data and memory tools for your existing MCP Agent.
 
 You run the server and own the vault. No accounts, hosted storage, model calls or telemetry.

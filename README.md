@@ -1,5 +1,12 @@
 # Personal OS · 本地个人数据框架
 
+[![Version](https://img.shields.io/badge/Version-0.3.0-blue)](CHANGELOG.md)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![MCP](https://img.shields.io/badge/MCP-stdio-8B5CF6)](docs/AGENTS.md)
+[![Storage](https://img.shields.io/badge/Storage-Local%20Markdown-10B981)](docs/DATA-SPEC.md)
+[![License](https://img.shields.io/badge/License-MIT-orange)](LICENSE)
+[![Tests](https://github.com/sowapolo425-art/personal-os/actions/workflows/tests.yml/badge.svg)](https://github.com/sowapolo425-art/personal-os/actions/workflows/tests.yml)
+
 **你的资料留在自己的电脑，你的 Agent 通过 MCP 使用它。**
 
 Personal OS 是一个可自用、可修改的开源个人资料框架与本地 MCP 工具。它帮助你持续记录经历、思考、项目、目标和决策，让不同 Agent 基于同一份长期资料协助你。无需注册，不提供集中托管，不调用模型 API，不收集遥测。
