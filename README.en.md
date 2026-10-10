@@ -5,6 +5,14 @@ Local Markdown personal data and memory tools for your existing MCP Agent.
 You run the server and own the vault. No accounts, hosted storage, model calls or telemetry.
 Use your own Agent and model provider. Cloud-backed Agents may send retrieved records to their provider.
 
+## Local dashboard (v0.2)
+
+Run `personal-os --vault /absolute/path/to/private-vault dashboard` to open a local browser panel.
+Inspect activity, records, timelines, sources and history; capture notes and review proposals.
+The panel binds only to `127.0.0.1`, requires no frontend build, loads no external assets,
+and refreshes every 30 seconds. Use `--no-browser` or `--port 8766` as needed.
+See [dashboard guide](docs/DASHBOARD.md). Screenshots use entirely fictional data.
+
 ## Quick start
 
 Requires Python 3.11+.

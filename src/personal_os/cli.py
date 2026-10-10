@@ -11,6 +11,9 @@ def main():
     sub.add_parser("init")
     serve = sub.add_parser("serve")
     serve.add_argument("--allow-restricted", action="store_true", help="Expose restricted records to this Agent")
+    dashboard = sub.add_parser("dashboard", help="Open a local browser dashboard")
+    dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.add_argument("--no-browser", action="store_true")
     sub.add_parser("proposals")
     show = sub.add_parser("show-proposal")
     show.add_argument("id")
@@ -26,6 +29,10 @@ def main():
     args = parser.parse_args()
     store = Store(args.vault)
     try:
+        if args.command == "dashboard":
+            from .dashboard import run
+            run(args.vault, args.port, not args.no_browser)
+            return
         if args.command == "serve":
             if not store.meta.is_dir():
                 raise ValueError("Run init first")

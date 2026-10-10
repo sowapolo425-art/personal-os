@@ -6,6 +6,20 @@ Personal OS 是一个可自用、可修改的开源个人资料框架与本地 M
 
 [English](README.en.md) · [接入指南](docs/AGENTS.md) · [数据规范](docs/DATA-SPEC.md) · [AI 交互协议](docs/AI-PROTOCOL.md) · [隐私与边界](docs/PRIVACY.md) · [验证记录](docs/VERIFICATION.md)
 
+![本地面板：完全虚构的演示资料](docs/images/dashboard.png)
+
+## 本地可视化面板 · v0.2
+
+安装并初始化资料库后，一条命令启动面板：
+
+```powershell
+.venv\Scripts\python.exe -m personal_os.cli --vault D:\PersonalData\my-vault dashboard
+```
+
+自动打开本机浏览器，查看记录总览、七天积累、资料分布、时间线、搜索和版本历史；也能保存想法，对比草稿并批准或拒绝。面板每 30 秒刷新，和 Agent 使用同一份资料库。
+
+只监听 `127.0.0.1`，默认地址为 `http://127.0.0.1:8765`，无外部字体、脚本或图表服务。无需安装前端开发环境。[启动与使用说明](docs/DASHBOARD.md)
+
 ```mermaid
 flowchart LR
     U[你] --> A[你已有的 Agent]
@@ -91,7 +105,7 @@ python3 -m venv .venv
 .venv\Scripts\python.exe -m personal_os.cli --vault D:\PersonalData\my-vault restore <RECORD_ID> --revision 1
 ```
 
-先查看草稿，再选择批准或拒绝。批准、删除、恢复没有暴露为 MCP 工具。Agent 若本来具有完整的电脑或终端权限，仍可绕过这个流程；请通过 Agent 自身的权限设置控制这一点。
+先查看草稿，再选择批准或拒绝；也可以在本地面板中对比与审核。批准、删除、恢复没有暴露为 MCP 工具。Agent 若本来具有完整的电脑或终端权限，仍可绕过这个流程；请通过 Agent 自身的权限设置控制这一点。
 
 删除只移除当前记录，历史和草稿仍可能保留其内容。完整清除与备份处理见隐私文档。
 

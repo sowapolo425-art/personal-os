@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "personal-os-local"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local Markdown personal data and memory tools for MCP agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -19,6 +19,9 @@ personal-os = "personal_os.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+personal_os = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
